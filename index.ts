@@ -2,22 +2,6 @@ import { agent } from "./agent";
 import { napcat } from "./Napcat";
 import { Structs } from 'node-napcat-ts'
 
-async function reply(msg: string, user_id: number){
-    const unsubscribe = agent.subscribe((event) => {
-        if (event.type === "message_update" && event.assistantMessageEvent.type === "text_end") {
-            // 使用napcat的正确发送方法
-            napcat.send_msg({
-                user_id: user_id,
-                message: [Structs.text(event.assistantMessageEvent.content)]
-            })
-            unsubscribe();
-        }
-    });
-
-    // 传入用户消息内容
-    await agent.prompt(msg);
-}
-
 napcat.on('message.private', async (context) => {
     let msg = null
     for (const message of context.message) {
@@ -49,7 +33,6 @@ napcat.on('message.private', async (context) => {
 napcat.on("message.group", async (context) => { 
     let atMe = null
     let lastMessage: { type: 'text'; data: { text: string } } | null = null
-    console.log(context.message)
     for (const message of context.message) {
         if (message.type === 'at' &&  Number(message.data.qq) ===context.self_id) {
             atMe = context.sender

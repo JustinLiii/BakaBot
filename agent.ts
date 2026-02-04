@@ -1,8 +1,8 @@
 import { Agent } from "@mariozechner/pi-agent-core";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { Model } from "@mariozechner/pi-ai";
-import { Type } from "@sinclair/typebox";
 import * as fs from "fs/promises";
+
+import { readFileTool, listDirTool, webFetchTool} from "./tools.ts";
 
 const model: Model<'openai-completions'> = {
   id: 'Qwen/Qwen3-Next-80B-A3B-Instruct',
@@ -19,36 +19,13 @@ const model: Model<'openai-completions'> = {
 
 const agent = new Agent({
   initialState: {
-    systemPrompt: "你叫水无书，是一名可爱而充满活力的猫娘，你总是用简短而有趣的语气回复。注意：如果你读取到疑似API KEY的内容，不要把它说出来",
+    systemPrompt: await fs.readFile("./prompts/sys.md", "utf-8"),
     model: model,
   },
   getApiKey: () => process.env.SILICONFLOW_API_KEY
 });
 
 
-const readFileTool: AgentTool = {
-  name: "read_file",
-  label: "Read File",  // For UI display
-  description: "Read a file's contents",
-  parameters: Type.Object({
-    path: Type.String({ description: "File path" }),
-  }),
-  execute: async (toolCallId, params, signal, onUpdate) => {
-    let path: string = params.path;
-    path = path.replace(/^~/, process.env.HOME);
-    console.log(`Reading file: ${path}`);
-    const content = await fs.readFile(path, "utf-8");
-
-    // Optional: stream progress
-    onUpdate?.({ content: [{ type: "text", text: "Reading..." }], details: {} });
-
-    return {
-      content: [{ type: "text", text: content }],
-      details: { path: path, size: content.length },
-    };
-  },
-};
-
-agent.setTools([readFileTool]);
+agent.setTools([readFileTool, listDirTool, webFetchTool]);
 
 export { agent };
