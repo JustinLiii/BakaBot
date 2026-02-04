@@ -4,7 +4,7 @@ import { Type } from "@sinclair/typebox";
 import * as fs from "fs/promises";
 
 function processPath(path: string) {
-  path = path.replace(/^~/, process.env.HOME);
+  path = path.replace(/^~/, process.env.HOME!);
   return path;
 }
 

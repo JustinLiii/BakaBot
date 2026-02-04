@@ -1,77 +1,160 @@
-import { agent } from "./agent";
-import { napcat } from "./Napcat";
-import { Structs } from 'node-napcat-ts'
+import { Agent } from "@mariozechner/pi-agent-core";
+import { Structs } from 'node-napcat-ts';
+import type { GroupMessage, PrivateFriendMessage, PrivateGroupMessage } from "node-napcat-ts";
 
-agent.subscribe((event) => { 
-    if (event.type === "agent_end") {
-        console.log("Agent ended");
+import { buildAgent } from "./src/agent";
+import { napcat } from "./src/napcat";
+import { triggered, get_text_content } from "./src/utils/agent_utils";
+import { atMe, getId } from "./src/utils/napcat_utils";
+
+type PrivateMsgHandler = (event: PrivateFriendMessage | PrivateGroupMessage, agent: Agent) => Promise<void>;
+type GroupMsgHandler = (event: GroupMessage, agent: Agent) => Promise<void>;
+
+class Bakabot {
+
+    agentDict: Map<string, {agent: Agent | null, pending: (GroupMessage | PrivateFriendMessage | PrivateGroupMessage)[]}> = new Map();
+
+    processPrivateMsg: PrivateMsgHandler[] = [];
+    processGroupMsg: GroupMsgHandler[] = [];
+
+    groupContextLimit = 20;
+
+    // function on_group_message(target: any, propertyKey: string, descriptor: PropertyDescriptor) {
+    //     const method = descriptor.value;
+    //     processGroupMsg.push(method);
+    //     return descriptor;
+    // }
+    constructor() { 
+        this.processGroupMsg = [
+            this.clear.bind(this),
+            this.replyGroupMsg.bind(this)
+        ]
+
+        this.processPrivateMsg = [
+            this.clear.bind(this),
+            this.replyPrivateMsg.bind(this)
+        ]
     }
-})
 
-napcat.on('message.private', async (context) => {
-    let msg = null
-    for (const message of context.message) {
-        if (message.type === 'text') {
-            msg = message
-            break
+
+    // ---------------
+    // Slash Commands
+    // ---------------
+    async clear(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, agent: Agent) {
+        if (event.raw_message === "/clear") {
+            agent.clearMessages()
         }
     }
 
-    if (!msg) return
-
-    const text = msg.data.text;
     
-    const unsubscribe = agent.subscribe((event) => {
-        if (event.type === "message_update" && event.assistantMessageEvent.type === "text_end") {
-            // 使用napcat的正确发送方法
-            napcat.send_msg({
-                user_id: context.sender.user_id,
-                message: [Structs.text(event.assistantMessageEvent.content)]
-            })
-        } else if (event.type === "agent_end") {
-            unsubscribe();
+    async onMsg(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage) {
+        console.log(event.raw_message);
+        const id = getId(event);
+        let session = this.agentDict.get(id);
+        if (!session) {
+            // build agent for new session
+            session = { agent: null, pending: [] };
+            this.agentDict.set(id, session);
+            session.agent = await buildAgent(id);
+            console.log("Agent created for " + id);
+        } else if (!session.agent) {
+            // agent is still being built, queue the message
+            session.pending.push(event);
+            console.log("Pending message for " + id);
+            return;
         }
-    });
 
-    // 传入用户消息内容
-    await agent.prompt(text);
-});
+        session.pending.push(event);
 
-napcat.on("message.group", async (context) => { 
-    let atMe = null
-    let lastMessage: { type: 'text'; data: { text: string } } | null = null
-    for (const message of context.message) {
-        if (message.type === 'at' &&  Number(message.data.qq) ===context.self_id) {
-            atMe = context.sender
-        }
-        if (message.type === 'text') {
-            lastMessage = message
+        console.log("Processing message for " + id)
+
+        const agent = session.agent!;
+
+        while (session.pending.length > 0) {
+            const thisEvent = session.pending.pop()!;
+            if (thisEvent.message_type === "group") {
+                console.log("Processing group message for " + id)
+                for (const handle of this.processGroupMsg) await handle(thisEvent, agent);
+            } else if (thisEvent.message_type === "private") {
+                console.log("Processing private message for " + id)
+                for (const handle of this.processPrivateMsg) await handle(thisEvent, agent);
+            }
         }
     }
-    if (!atMe) return
-    
-    // 安全地访问文本内容
-    let text = atMe.nickname
-    if (lastMessage) {
-        text = text + "说：\n" + lastMessage.data.text;
-    } else {
-        text = text + "@了一下你"
-    }
-    
-    const unsubscribe = agent.subscribe((event) => {
-        if (event.type === "message_update" && event.assistantMessageEvent.type === "text_end") {
-            // 使用napcat的正确发送方法
-            napcat.send_group_msg({
-                group_id: context.group_id,
-                message: [Structs.reply(context.message_id), Structs.at(atMe.user_id), Structs.text(event.assistantMessageEvent.content)]
-            })
-        } else if (event.type === "agent_end") {
-            unsubscribe();
-        }
-    });
 
-    // 传入用户消息内容
-    await agent.prompt(text);
-});
+    // ---------------
+    // Msg process
+    // ---------------
+    async replyPrivateMsg(context: PrivateFriendMessage | PrivateGroupMessage, agent: Agent) {
+        const text = context.raw_message
+        console.log("User: " + text);
+        await agent.waitForIdle();
+        const unsubscribe = agent.subscribe((event) => {
+            if (event.type === "turn_end") {
+                let reply = null;
+                if (event.message.content instanceof Array) {
+                    for (const content of event.message.content) {
+                        if (content.type === "text") {
+                            reply = content.text
+                            break
+                        }
+                    }
+                } else {
+                    reply = event.message.content
+                }
+                if (!reply) {
+                    console.log("Turn end without text reply")
+                    return
+                }
+                console.log("Agent: " + reply);
+                napcat.send_msg({
+                    user_id: context.sender.user_id,
+                    message: [Structs.text(reply)]
+                })
+            } else if (event.type === "agent_end") {
+                unsubscribe();
+            }
+        });
+        await agent.prompt(text);
+    }
+
+    async replyGroupMsg(context: GroupMessage, agent: Agent) {
+        console.log("Processing:"+ context.raw_message)
+        if (context.sender.user_id == context.self_id) return;
+        console.log("Processing:"+ context.raw_message)
+        await agent.waitForIdle();
+        agent.state.messages.push({
+            role: "user",
+            content: context.raw_message,
+            timestamp: new Date().getTime()
+        })
+        if (agent.state.messages.length > this.groupContextLimit) {
+            agent.state.messages = agent.state.messages.slice(-this.groupContextLimit)
+        }
+
+        const at = atMe(context)
+        if (!at && !(await triggered(context.raw_message, agent))) return
+        console.log("User: " + context.raw_message);
+        const unsubscribe = agent.subscribe((event) => {
+        if (event.type === "turn_end") {
+                const reply = get_text_content(event.message)
+                if (!reply) {
+                    console.log("Turn end without text reply")
+                    return
+                }
+                console.log("Agent: " + reply);
+                context.quick_action(reply, at) // 这里的类型标注有问题，直接传string是正确的
+            } else if (event.type === "agent_end") {
+                unsubscribe();
+            }
+        });
+        await agent.continue();
+    }
+
+}
+
+const bot = new Bakabot();
+
+napcat.on("message", bot.onMsg.bind(bot));
 
 napcat.connect();
