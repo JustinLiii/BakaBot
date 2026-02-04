@@ -2,6 +2,12 @@ import { agent } from "./agent";
 import { napcat } from "./Napcat";
 import { Structs } from 'node-napcat-ts'
 
+agent.subscribe((event) => { 
+    if (event.type === "agent_end") {
+        console.log("Agent ended");
+    }
+})
+
 napcat.on('message.private', async (context) => {
     let msg = null
     for (const message of context.message) {
@@ -22,6 +28,7 @@ napcat.on('message.private', async (context) => {
                 user_id: context.sender.user_id,
                 message: [Structs.text(event.assistantMessageEvent.content)]
             })
+        } else if (event.type === "agent_end") {
             unsubscribe();
         }
     });
@@ -58,6 +65,7 @@ napcat.on("message.group", async (context) => {
                 group_id: context.group_id,
                 message: [Structs.reply(context.message_id), Structs.at(atMe.user_id), Structs.text(event.assistantMessageEvent.content)]
             })
+        } else if (event.type === "agent_end") {
             unsubscribe();
         }
     });

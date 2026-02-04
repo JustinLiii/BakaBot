@@ -58,8 +58,8 @@ const webFetchTool: AgentTool = {
   }),
   execute: async (toolCallId, params, signal, onUpdate) => {
     console.log(`Fetching URL: ${params.url}`);
-    const response = await fetch(params.url);
-
+    const url = "https://r.jina.ai/" + params.url
+    const response = await fetch(url);
     return {
       content: [{ type: "text", text: await response.text() }],
       details: { url: params.url, status: response.status },
