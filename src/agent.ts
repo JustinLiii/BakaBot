@@ -5,46 +5,30 @@ import * as fs from "fs/promises";
 import console from "console";
 import type { NCWebsocket, GroupMessage } from "node-napcat-ts";
 
-import { reply } from "./napcat.ts";
 import { readFileTool, listDirTool, webFetchTool, continueTool } from "./tools.ts";
+
+type QQSessionExtra = {
+  chatId?: string;
+  selfId?: string;
+  userInfo?: string;
+  groupInfo?: string;
+};
 
 class BakaAgent extends Agent {
   pendingGroupFollowUp: GroupMessage[] = [];
   toBeReplied: GroupMessage | null = null;
-  constructor(options: AgentOptions, napcat: NCWebsocket | undefined, id: string) {
-    super(options);
-    this.sessionId = id;
-    // message sending hook
-    if (napcat) {
-      this.subscribe(async (event) => {
-        if (event.type === "message_end") {
-          if (event.message.role !== "assistant") return;
-          const msg = event.message.content
-              .filter((c) => c.type === "text")
-              .map((c) => c.text.trim())
-              .join("");
-          if (msg.length === 0) return;
-          // multi message sending
-          const msgs = msg.split("\n\n").filter(m => m.trim().length > 0);
-          if (this.toBeReplied){
-            for (const msg of msgs) {
-              if (this.toBeReplied) {
-                await this.toBeReplied.quick_action(msg, true);
-                this.toBeReplied = null;
-              } else {
-                await reply(msg, id, napcat);
-              }
-            }
-          } else {
-            for (const msg of msgs) {
-              await reply(msg, id, napcat);
-            }
-          }
-        }
-      })
+  extra?: QQSessionExtra;
+  constructor(options: AgentOptions, extra?: QQSessionExtra) {
+    if (options.initialState) {
+      options.initialState.systemPrompt += extra && extra.selfId ? `\n你的QQ号是${extra.selfId}.\n` : ""; // TODO: Prompt template
+      options.initialState.systemPrompt += extra && extra.groupInfo ? `\n本群信息：\n${extra.groupInfo}\n` : "";
+      options.initialState.systemPrompt += extra && extra.userInfo ? `\n与你对话的用户信息：\n${extra.userInfo}\n` : "";
     }
 
-    // follow up processing
+    super(options);
+    this.extra = extra;
+
+    // Group follow up processing
     this.subscribe(async (event) => {
       if (event.type === "agent_end") {
         // process pending follow ups
@@ -98,7 +82,7 @@ class BakaAgent extends Agent {
   }
 }
 
-async function buildAgent(id: string, napcat: NCWebsocket | undefined): Promise<BakaAgent> {
+async function buildAgent(extra: QQSessionExtra | undefined, options?: Partial<AgentOptions>): Promise<BakaAgent> {
   const model: Model<'openai-completions'> = {
     id: 'deepseek-ai/DeepSeek-V3.2',
     name: 'DeepSeek-V3.2 (SiliconFlow)',
@@ -118,12 +102,11 @@ async function buildAgent(id: string, napcat: NCWebsocket | undefined): Promise<
       model: model,
     },
     getApiKey: () => process.env.SILICONFLOW_API_KEY
-  }, napcat, id);
+  }, extra);
 
   agent.setTools([readFileTool, listDirTool, webFetchTool, continueTool]);
 
   return agent
 }
 
-export { buildAgent };
-export type { BakaAgent };
+export { buildAgent, BakaAgent };
