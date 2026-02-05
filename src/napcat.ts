@@ -1,5 +1,20 @@
+import { NCWebsocket, Structs } from 'node-napcat-ts'
 
-import { NCWebsocket } from 'node-napcat-ts'
+async function reply (message: string, id: string, napcat: NCWebsocket): Promise<void> {
+  if (id.startsWith("g")) {
+    await napcat.send_group_msg({
+      group_id: Number(id.slice(1)),
+      message: [Structs.text(message)]
+    })
+  } else {
+    await napcat.send_private_msg({
+      user_id: Number(id),
+      message: [Structs.text(message)]
+    })
+
+  }
+  console.log(`[Napcat] Sent message to ${id}: ${message}`)
+}
 
 const napcat = new NCWebsocket({
   protocol: 'ws',
@@ -17,4 +32,4 @@ const napcat = new NCWebsocket({
   // ↓ 是否开启 DEBUG 模式
 }, false)
 
-export {napcat}
+export {napcat, reply}

@@ -19,11 +19,6 @@ class Bakabot {
 
     groupContextLimit = 20;
 
-    // function on_group_message(target: any, propertyKey: string, descriptor: PropertyDescriptor) {
-    //     const method = descriptor.value;
-    //     processGroupMsg.push(method);
-    //     return descriptor;
-    // }
     constructor() { 
         this.processGroupMsg = [
             this.clear.bind(this),
@@ -36,17 +31,6 @@ class Bakabot {
         ]
     }
 
-
-    // ---------------
-    // Slash Commands
-    // ---------------
-    async clear(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, agent: Agent) {
-        if (event.raw_message === "/clear") {
-            agent.clearMessages()
-        }
-    }
-
-    
     async onMsg(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage) {
         console.log(event.raw_message);
         const id = getId(event);
@@ -55,7 +39,7 @@ class Bakabot {
             // build agent for new session
             session = { agent: null, pending: [] };
             this.agentDict.set(id, session);
-            session.agent = await buildAgent(id);
+            session.agent = await buildAgent(id, napcat);
             console.log("Agent created for " + id);
         } else if (!session.agent) {
             // agent is still being built, queue the message
@@ -83,43 +67,26 @@ class Bakabot {
     }
 
     // ---------------
+    // Slash Commands
+    // ---------------
+    async clear(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, agent: Agent) {
+        if (event.raw_message === "/clear") {
+            agent.clearMessages()
+        }
+    }
+
+    // ---------------
     // Msg process
     // ---------------
     async replyPrivateMsg(context: PrivateFriendMessage | PrivateGroupMessage, agent: Agent) {
         const text = context.raw_message
         console.log("User: " + text);
         await agent.waitForIdle();
-        const unsubscribe = agent.subscribe((event) => {
-            if (event.type === "turn_end") {
-                let reply = null;
-                if (event.message.content instanceof Array) {
-                    for (const content of event.message.content) {
-                        if (content.type === "text") {
-                            reply = content.text
-                            break
-                        }
-                    }
-                } else {
-                    reply = event.message.content
-                }
-                if (!reply) {
-                    console.log("Turn end without text reply")
-                    return
-                }
-                console.log("Agent: " + reply);
-                napcat.send_msg({
-                    user_id: context.sender.user_id,
-                    message: [Structs.text(reply)]
-                })
-            } else if (event.type === "agent_end") {
-                unsubscribe();
-            }
-        });
         await agent.prompt(text);
     }
 
     async replyGroupMsg(context: GroupMessage, agent: Agent) {
-        console.log("Processing:"+ context.raw_message)
+        // console.log("Processing:"+ context.raw_message)
         if (context.sender.user_id == context.self_id) return;
         console.log("Processing:"+ context.raw_message)
         await agent.waitForIdle();
@@ -135,19 +102,6 @@ class Bakabot {
         const at = atMe(context)
         if (!at && !(await triggered(context.raw_message, agent))) return
         console.log("User: " + context.raw_message);
-        const unsubscribe = agent.subscribe((event) => {
-        if (event.type === "turn_end") {
-                const reply = get_text_content(event.message)
-                if (!reply) {
-                    console.log("Turn end without text reply")
-                    return
-                }
-                console.log("Agent: " + reply);
-                context.quick_action(reply, at) // 这里的类型标注有问题，直接传string是正确的
-            } else if (event.type === "agent_end") {
-                unsubscribe();
-            }
-        });
         await agent.continue();
     }
 

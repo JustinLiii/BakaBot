@@ -1,12 +1,48 @@
 
-import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentTool, AgentToolResult, AgentToolUpdateCallback } from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
+import { NCWebsocket } from "node-napcat-ts";
+import { Structs } from "node-napcat-ts";
 import * as fs from "fs/promises";
+import { Agent } from "http";
 
 function processPath(path: string) {
   path = path.replace(/^~/, process.env.HOME!);
   return path;
 }
+
+// class sendMessageTool implements AgentTool {
+//   napcat: NCWebsocket;
+//   name = "send_message"
+//   label = "Send Message" 
+//   description = "Send a message"
+//   parameters = Type.Object({
+//     message: Type.String({ description: "Message to send" }),
+//   })
+
+//   constructor(napcat: NCWebsocket, private readonly id: string) {
+//     this.napcat = napcat;
+//   }
+//   async execute (toolCallId: string, params: unknown, signal?: AbortSignal, onUpdate?: AgentToolUpdateCallback<any> | undefined): Promise<AgentToolResult<any>> {
+//     if (this.id.startsWith("g")) {
+//       await this.napcat.send_group_msg({
+//         group_id: Number(this.id.slice(1)),
+//         message: [Structs.text(params.message)]
+//       })
+//     } else {
+//       await this.napcat.send_private_msg({
+//         user_id: Number(this.id),
+//         message: [Structs.text(params.message)]
+//       })
+
+//     }
+//     console.log(`Sent message to ${this.id}: ${params.message}`)
+//     return {
+//       content: [{ type: "text", text: "Message sent." }],
+//       details: {},
+//     }
+//   }
+// }
 
 const readFileTool: AgentTool = {
   name: "read_file",
@@ -67,4 +103,18 @@ const webFetchTool: AgentTool = {
   }
 }
 
-export { readFileTool, listDirTool, webFetchTool};
+const continueTool: AgentTool = {
+  name: "continue",
+  label: "Continue",
+  description: "Call this tool if you want to continue your response in the next turn",
+  parameters: Type.Object({}),
+  execute: async (toolCallId, params, signal, onUpdate) => {
+    console.log(`Continuing response`);
+    return {
+      content: [{ type: "text", text: "Please continue your response..." }],
+      details: {},
+    }
+  }
+}
+
+export { readFileTool, listDirTool, webFetchTool, continueTool};
