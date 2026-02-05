@@ -22,11 +22,13 @@ class Bakabot {
     constructor() { 
         this.processGroupMsg = [
             this.clear.bind(this),
+            this.stop.bind(this),
             this.replyGroupMsg.bind(this)
         ]
 
         this.processPrivateMsg = [
             this.clear.bind(this),
+            this.stop.bind(this),
             this.replyPrivateMsg.bind(this)
         ]
     }
@@ -72,6 +74,12 @@ class Bakabot {
     async clear(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent) {
         if (event.raw_message === "/clear") {
             agent.clearMessages()
+        }
+    }
+
+    async stop(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent) {
+        if (event.raw_message === "/stop") {
+            agent.abort()
         }
     }
 
