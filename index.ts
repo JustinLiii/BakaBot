@@ -1,18 +1,18 @@
-import { Agent } from "@mariozechner/pi-agent-core";
-import { Structs } from 'node-napcat-ts';
+import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { GroupMessage, PrivateFriendMessage, PrivateGroupMessage } from "node-napcat-ts";
 
 import { buildAgent } from "./src/agent";
+import type { BakaAgent } from "./src/agent";
 import { napcat } from "./src/napcat";
-import { triggered, get_text_content } from "./src/utils/agent_utils";
+import { triggered } from "./src/utils/agent_utils";
 import { atMe, getId } from "./src/utils/napcat_utils";
 
-type PrivateMsgHandler = (event: PrivateFriendMessage | PrivateGroupMessage, agent: Agent) => Promise<void>;
-type GroupMsgHandler = (event: GroupMessage, agent: Agent) => Promise<void>;
+type PrivateMsgHandler = (event: PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent) => Promise<void>;
+type GroupMsgHandler = (event: GroupMessage, agent: BakaAgent) => Promise<void>;
 
 class Bakabot {
 
-    agentDict: Map<string, {agent: Agent | null, pending: (GroupMessage | PrivateFriendMessage | PrivateGroupMessage)[]}> = new Map();
+    agentDict: Map<string, {agent: BakaAgent | null, pending: (GroupMessage | PrivateFriendMessage | PrivateGroupMessage)[]}> = new Map();
 
     processPrivateMsg: PrivateMsgHandler[] = [];
     processGroupMsg: GroupMsgHandler[] = [];
@@ -69,7 +69,7 @@ class Bakabot {
     // ---------------
     // Slash Commands
     // ---------------
-    async clear(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, agent: Agent) {
+    async clear(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent) {
         if (event.raw_message === "/clear") {
             agent.clearMessages()
         }
@@ -78,33 +78,47 @@ class Bakabot {
     // ---------------
     // Msg process
     // ---------------
-    async replyPrivateMsg(context: PrivateFriendMessage | PrivateGroupMessage, agent: Agent) {
+    async replyPrivateMsg(context: PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent) {
         const text = context.raw_message
         console.log("User: " + text);
-        await agent.waitForIdle();
-        await agent.prompt(text);
+        try {
+            await agent.prompt(text);
+        } catch (e) {
+            if (!(e instanceof Error)) throw e;
+            if (!e.message.includes("Agent is already processing a prompt.")) throw e;
+            console.log("Agent busy, sending steer");
+            agent.steer({role: "user", content: text, timestamp: new Date().getTime() });
+        }
     }
 
-    async replyGroupMsg(context: GroupMessage, agent: Agent) {
+    async replyGroupMsg(context: GroupMessage, agent: BakaAgent) {
         // console.log("Processing:"+ context.raw_message)
         if (context.sender.user_id == context.self_id) return;
         console.log("Processing:"+ context.raw_message)
-        await agent.waitForIdle();
-        agent.state.messages.push({
+        const msg: AgentMessage = {
             role: "user",
             content: context.raw_message,
             timestamp: new Date().getTime()
-        })
-        if (agent.state.messages.length > this.groupContextLimit) {
-            agent.state.messages = agent.state.messages.slice(-this.groupContextLimit)
         }
-
         const at = atMe(context)
-        if (!at && !(await triggered(context.raw_message, agent))) return
+        if (!at && !(await triggered(context.raw_message, agent))) {
+            if (agent.state.messages.length + 1 > this.groupContextLimit) {
+                agent.state.messages = agent.state.messages.slice(-(this.groupContextLimit - 1))
+            }
+            agent.state.messages.push(msg)
+            return 
+        }
+        
         console.log("User: " + context.raw_message);
-        await agent.continue();
+        try {
+            await agent.prompt(msg);
+        } catch (e) {
+            if (!(e instanceof Error)) throw e;
+            if (!e.message.includes("Agent is already processing a prompt.")) throw e;
+            console.log("Agent busy, sending group follow up");
+            agent.GroupfollowUp(context);
+        }
     }
-
 }
 
 const bot = new Bakabot();
