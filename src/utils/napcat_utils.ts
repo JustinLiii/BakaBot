@@ -15,8 +15,9 @@ function formatGroupInfo(
 群备注: ${groupInfo.group_remark || "无"}
 成员数: ${groupInfo.member_count}
 `;
+    str += `成员列表: (昵称 (id) - 群内昵称)\n`;
     for (const member of memberInfo) {
-        str += `成员: ${member.nickname} (${member.user_id}) - ${member.title}\n`;
+        str += `${member.nickname} (${member.user_id}) - ${member.title}\n`;
     }
     return str;
 }

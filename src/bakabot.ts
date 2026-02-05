@@ -57,7 +57,9 @@ class BakaBot {
                     }
                 }
             } else {
-                msgs.map(msg => reply(msg, chatId, napcat));
+                for (const msg of msgs) {
+                    await reply(msg, chatId, napcat);
+                }
             }
         })
     }
