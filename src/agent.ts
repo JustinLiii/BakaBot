@@ -91,9 +91,9 @@ async function buildAgent(extra: QQSessionExtra | undefined, options?: Partial<A
     baseUrl: 'https://api.siliconflow.cn/v1/',
     reasoning: false,
     input: ['text'],
-    cost: { input: 1, output: 4, cacheRead: 1, cacheWrite: 4 },
-    contextWindow: 262144,
-    maxTokens: 262144,
+    cost: { input: 2, output: 3, cacheRead: 2, cacheWrite: 3 },
+    contextWindow: 163840,
+    maxTokens: 163840,
   };
 
   const agent = new BakaAgent({
