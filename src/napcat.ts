@@ -4,7 +4,7 @@ const napcat = new NCWebsocket({
   protocol: 'ws',
   host: '127.0.0.1',
   port: 11451,
-  accessToken: 'IIaEzKZltGMNauLM',
+  accessToken: process.env.NAPCAT_TOKEN,
   // 是否需要在触发 socket.error 时抛出错误, 默认关闭
   throwPromise: true,
   // ↓ 自动重连(可选)
