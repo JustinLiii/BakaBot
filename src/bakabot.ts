@@ -2,18 +2,13 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { GroupMessage, PrivateFriendMessage, PrivateGroupMessage, NCWebsocket } from "node-napcat-ts";
 
 import { buildAgent, type BakaAgent } from "./agent";
-import { formatGroupInfo, formatGroupMemberList } from "./prompts/napcat_templates";
+import { formatGroupInfo, formatGroupMemberList, groupPrompt, privatePrompt, eventToString } from "./prompts/napcat_templates";
 import { triggered, get_text_content } from "./utils/agent_utils";
-import { atMe, getId, reply, eventToString } from "./utils/napcat_utils";
+import { atMe, getId, reply } from "./utils/napcat_utils";
+import { system_prompt } from "./prompts/sys";
 
 type PrivateMsgHandler = (event: PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent) => Promise<void>;
 type GroupMsgHandler = (event: GroupMessage, agent: BakaAgent) => Promise<void>;
-
-async function getGroupSessionMeta(group_id: number, napcat: NCWebsocket) {
-    const groupInfoRaw = await napcat.get_group_info({group_id})
-    const groupMemberList = await napcat.get_group_member_list({group_id})
-    return formatGroupInfo(groupInfoRaw) + formatGroupMemberList(groupMemberList);
-}
 
 class BakaBot {
 
@@ -41,7 +36,7 @@ class BakaBot {
         ]
     }
 
-    registerMsgHandler(napcat: NCWebsocket, agent: BakaAgent) {
+    private registerMsgHandler(napcat: NCWebsocket, agent: BakaAgent) {
         if (!agent.extra || !agent.extra.chatId) throw new Error("Agent missing chatId in extra");
         const chatId = agent.extra.chatId;
 
@@ -70,6 +65,34 @@ class BakaBot {
         })
     }
 
+    private async constructAgent(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, napcat: NCWebsocket): Promise<BakaAgent> {
+        let sys_prompt: string = system_prompt;
+        if (event.message_type === "group") {
+            const group_info_str = formatGroupInfo(await napcat.get_group_info({ group_id: event.group_id }))
+            const group_member_list_str = formatGroupMemberList(await napcat.get_group_member_list({ group_id: event.group_id }))
+            sys_prompt += groupPrompt(group_info_str, group_member_list_str);
+        } else if (event.message_type === "private") {
+            if (event.sub_type === "friend") {
+                const userInfo = {
+                    "user_id": event.sender.user_id,
+                    "nickname": event.sender.nickname,
+                    "remark": event.sender.card
+                }
+                sys_prompt += privatePrompt(userInfo);
+            } else { // sub_type === "group"
+                const userInfo = {
+                    "user_id": event.sender.user_id,
+                    "nickname": event.sender.nickname,
+                }
+                sys_prompt += privatePrompt(userInfo);
+            }
+        }
+
+        return await buildAgent({
+            systemPrompt: sys_prompt,
+        });
+    }
+
     async onMsg(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, napcat: NCWebsocket): Promise<void> {
         const msg = eventToString(event);
         const id = getId(event);
@@ -81,27 +104,7 @@ class BakaBot {
             // build agent for new session
             session = { agent: null, pending: [] };
             this.agentDict.set(id, session);
-            let groupInfo: string | undefined = undefined;
-            let userInfo: string | undefined = undefined;
-            if (event.message_type === "group") {
-                
-            } else if (event.message_type === "private") {
-                const friendList = await napcat.get_friend_list();
-                const friend = friendList.find(f => f.user_id === event.sender.user_id);
-                if (friend) {
-                    userInfo = `好友昵称：${friend.nickname}\n好友备注：${friend.remark}`;
-                } else {
-                    const stranger = await napcat.get_stranger_info({ user_id: event.sender.user_id });
-                    userInfo = `用户昵称：${stranger.nickname}`;
-                }
-            }
-
-            session.agent = await buildAgent({
-                chatId: id,
-                selfId: this.selfId ?? undefined,
-                groupInfo: groupInfo,
-                userInfo: userInfo
-            });
+            session.agent = await this.constructAgent(event, napcat);
             this.registerMsgHandler(napcat, session.agent);
             console.log("[Bot] Agent created for " + id);
         } else if (!session.agent) {

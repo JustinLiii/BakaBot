@@ -1,11 +1,12 @@
 import { Agent, agentLoop } from "@mariozechner/pi-agent-core";
-import type { AgentMessage, AgentOptions } from "@mariozechner/pi-agent-core";
+import type { AgentMessage, AgentOptions, AgentState } from "@mariozechner/pi-agent-core";
 import type { Model } from "@mariozechner/pi-ai";
 import * as fs from "fs/promises";
 import console from "console";
-import type { NCWebsocket, GroupMessage } from "node-napcat-ts";
+import type { GroupMessage } from "node-napcat-ts";
 
 import { readFileTool, listDirTool, webFetchTool, continueTool } from "./tools.ts";
+import { system_prompt } from "./prompts/sys.ts";
 
 type QQSessionExtra = {
   chatId?: string;
@@ -16,15 +17,15 @@ class BakaAgent extends Agent {
   pendingGroupFollowUp: GroupMessage[] = [];
   toBeReplied: GroupMessage | null = null;
   extra?: QQSessionExtra;
-  constructor(options: AgentOptions, extra?: QQSessionExtra) {
-    if (options.initialState) {
-      options.initialState.systemPrompt += extra && extra.selfId ? `\n你的QQ号是${extra.selfId}.\n` : ""; // TODO: Prompt template
-      options.initialState.systemPrompt += extra && extra.groupInfo ? `\n本群信息：\n${extra.groupInfo}\n` : "";
-      options.initialState.systemPrompt += extra && extra.userInfo ? `\n与你对话的用户信息：\n${extra.userInfo}\n` : "";
-    }
+  constructor(options: AgentOptions) {
+    // if (options.initialState) {
+    //   options.initialState.systemPrompt += extra && extra.selfId ? `\n你的QQ号是${extra.selfId}.\n` : ""; // TODO: Prompt template
+    //   options.initialState.systemPrompt += extra && extra.groupInfo ? `\n本群信息：\n${extra.groupInfo}\n` : "";
+    //   options.initialState.systemPrompt += extra && extra.userInfo ? `\n与你对话的用户信息：\n${extra.userInfo}\n` : "";
+    // }
 
     super(options);
-    this.extra = extra;
+    // this.extra = extra;
 
     // Group follow up processing
     this.subscribe(async (event) => {
@@ -80,7 +81,7 @@ class BakaAgent extends Agent {
   }
 }
 
-async function buildAgent(extra: QQSessionExtra | undefined, options?: Partial<AgentOptions>): Promise<BakaAgent> {
+async function buildAgent(initialState?: Partial<AgentState>): Promise<BakaAgent> {
   const model: Model<'openai-completions'> = {
     id: 'deepseek-ai/DeepSeek-V3.2',
     name: 'DeepSeek-V3.2 (SiliconFlow)',
@@ -94,21 +95,19 @@ async function buildAgent(extra: QQSessionExtra | undefined, options?: Partial<A
     maxTokens: 262144,
   };
 
-  const defaultOptions: AgentOptions = {
-    initialState: {
-      systemPrompt: await fs.readFile("./prompts/sys.md", "utf-8"),
-      model: model,
-    },
-    getApiKey: () => process.env.SILICONFLOW_API_KEY
+  const defaultState: Partial<AgentState> = {
+    systemPrompt: system_prompt,
+    model: model,
   };
 
   const agent = new BakaAgent(
     {
-      ...defaultOptions,
-      ...options
-    }, 
-    extra
-  );
+      initialState: {
+        ...defaultState,
+        ...initialState,
+      },
+      getApiKey: () => process.env.SILICONFLOW_API_KEY
+    });
 
   agent.setTools([readFileTool, listDirTool, webFetchTool, continueTool]);
 
