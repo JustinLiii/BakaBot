@@ -1,8 +1,22 @@
 import type { Agent, AgentMessage } from "@mariozechner/pi-agent-core";
 import type { Context } from "@mariozechner/pi-ai";
 import { complete } from "@mariozechner/pi-ai";
+import type { Model } from "@mariozechner/pi-ai";
 
 import { triggerMsg } from "../prompts/prompts";
+
+const model: Model<'openai-completions'> = {
+    id: 'Qwen/Qwen3-8B',
+    name: 'Qwen3-8B (SiliconFlow)',
+    api: 'openai-completions',
+    provider: 'SiliconFlow',
+    baseUrl: 'https://api.siliconflow.cn/v1/',
+    reasoning: false,
+    input: ['text'],
+    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: 131072,
+    maxTokens: 131072,
+  };
 
 /**
  * Determines if an agent should be triggered based on a message.
@@ -21,7 +35,7 @@ async function triggered(msg: string, agent: Agent): Promise<boolean> {
         messages: [{ role: 'user', content: triggerMsg(msg, agent.state.messages), timestamp: new Date().getTime() }],
     };
 
-    const res = await complete(agent.state.model, msgs, {apiKey: process.env.SILICONFLOW_API_KEY})
+    const res = await complete(model, msgs, {apiKey: process.env.SILICONFLOW_API_KEY})
     const content = res.content[res.content.length - 1]
     console.log(content)
     if (content?.type === "text") {

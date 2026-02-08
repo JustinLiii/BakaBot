@@ -5,7 +5,7 @@ import * as fs from "fs/promises";
 import console from "console";
 import type { GroupMessage } from "node-napcat-ts";
 
-import { readFileTool, listDirTool, webFetchTool, continueTool } from "./tools.ts";
+import { readFileTool, listDirTool, webFetchTool, continueTool, pythonTool } from "./tools.ts";
 import { system_prompt } from "./prompts/sys.ts";
 
 type QQSessionExtra = {
@@ -90,9 +90,9 @@ async function buildAgent(initialState?: Partial<AgentState>): Promise<BakaAgent
     baseUrl: 'https://api.siliconflow.cn/v1/',
     reasoning: false,
     input: ['text'],
-    cost: { input: 1, output: 4, cacheRead: 1, cacheWrite: 4 },
-    contextWindow: 262144,
-    maxTokens: 262144,
+    cost: { input: 2, output: 3, cacheRead: 2, cacheWrite: 3 },
+    contextWindow: 163840,
+    maxTokens: 163840,
   };
 
   const defaultState: Partial<AgentState> = {
@@ -109,7 +109,7 @@ async function buildAgent(initialState?: Partial<AgentState>): Promise<BakaAgent
       getApiKey: () => process.env.SILICONFLOW_API_KEY
     });
 
-  agent.setTools([readFileTool, listDirTool, webFetchTool, continueTool]);
+  agent.setTools([readFileTool, listDirTool, webFetchTool, continueTool, pythonTool]);
 
   return agent
 }
