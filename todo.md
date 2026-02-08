@@ -1,3 +1,4 @@
 - [ ] Read chat history
+- [ ] Stream message for multi segment
 - [ ] 中间件
 - [x] Chat info/context

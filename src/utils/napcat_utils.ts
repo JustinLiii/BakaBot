@@ -7,21 +7,6 @@ import type {
 } from "node-napcat-ts";
 import { Structs } from "node-napcat-ts";
 
-function formatGroupInfo(
-    groupInfo: {group_all_shut: number; group_remark: string; group_id: number; group_name: string; member_count: number; max_member_count: number;}, 
-    memberInfo: {user_id: number; nickname: string; title: string;}[]): string {
-    let str = `
-群名: ${groupInfo.group_name} (ID: ${groupInfo.group_id})
-群备注: ${groupInfo.group_remark || "无"}
-成员数: ${groupInfo.member_count}
-`;
-    str += `成员列表: (昵称 (id) - 群内昵称)\n`;
-    for (const member of memberInfo) {
-        str += `${member.nickname} (${member.user_id}) - ${member.title}\n`;
-    }
-    return str;
-}
-
 function segmentToString(segment: SendMessageSegment): string {
     switch (segment.type) {
         case "text":
@@ -67,7 +52,16 @@ function segmentToString(segment: SendMessageSegment): string {
 function eventToString(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage): string {
     let msg = "";
     if (event.message_type === "group") {
-        msg += `[用户 ${event.sender.nickname} (${event.sender.user_id})] `;
+        let roleString = "";
+        switch (event.sender.role) {
+            case ("owner"):
+                roleString = " - 群主";
+                break;
+            case ("admin"):
+                roleString = " - 管理员";
+                break;
+        }
+        msg += `[用户 ${event.sender.nickname} (${event.sender.user_id}) ${roleString}] `;
     }
     return msg + event.message.map(segmentToString).join(" ");
 }

@@ -10,8 +10,6 @@ import { readFileTool, listDirTool, webFetchTool, continueTool } from "./tools.t
 type QQSessionExtra = {
   chatId?: string;
   selfId?: string;
-  userInfo?: string;
-  groupInfo?: string;
 };
 
 class BakaAgent extends Agent {
@@ -96,13 +94,21 @@ async function buildAgent(extra: QQSessionExtra | undefined, options?: Partial<A
     maxTokens: 262144,
   };
 
-  const agent = new BakaAgent({
+  const defaultOptions: AgentOptions = {
     initialState: {
       systemPrompt: await fs.readFile("./prompts/sys.md", "utf-8"),
       model: model,
     },
     getApiKey: () => process.env.SILICONFLOW_API_KEY
-  }, extra);
+  };
+
+  const agent = new BakaAgent(
+    {
+      ...defaultOptions,
+      ...options
+    }, 
+    extra
+  );
 
   agent.setTools([readFileTool, listDirTool, webFetchTool, continueTool]);
 

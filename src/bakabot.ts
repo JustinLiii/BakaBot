@@ -1,13 +1,19 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { GroupMessage, PrivateFriendMessage, PrivateGroupMessage, NCWebsocket } from "node-napcat-ts";
 
-import { buildAgent } from "./agent";
-import type { BakaAgent } from "./agent";
+import { buildAgent, type BakaAgent } from "./agent";
+import { formatGroupInfo, formatGroupMemberList } from "./prompts/napcat_templates";
 import { triggered, get_text_content } from "./utils/agent_utils";
-import { atMe, getId, reply, eventToString, formatGroupInfo } from "./utils/napcat_utils";
+import { atMe, getId, reply, eventToString } from "./utils/napcat_utils";
 
 type PrivateMsgHandler = (event: PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent) => Promise<void>;
 type GroupMsgHandler = (event: GroupMessage, agent: BakaAgent) => Promise<void>;
+
+async function getGroupSessionMeta(group_id: number, napcat: NCWebsocket) {
+    const groupInfoRaw = await napcat.get_group_info({group_id})
+    const groupMemberList = await napcat.get_group_member_list({group_id})
+    return formatGroupInfo(groupInfoRaw) + formatGroupMemberList(groupMemberList);
+}
 
 class BakaBot {
 
@@ -78,9 +84,7 @@ class BakaBot {
             let groupInfo: string | undefined = undefined;
             let userInfo: string | undefined = undefined;
             if (event.message_type === "group") {
-                const groupInfoRaw = await napcat.get_group_info({ group_id: event.group_id})
-                const groupMemberList = await napcat.get_group_member_list({ group_id: event.group_id})
-                groupInfo = formatGroupInfo(groupInfoRaw, groupMemberList);
+                
             } else if (event.message_type === "private") {
                 const friendList = await napcat.get_friend_list();
                 const friend = friendList.find(f => f.user_id === event.sender.user_id);
