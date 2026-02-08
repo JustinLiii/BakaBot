@@ -8,21 +8,21 @@ import type {
 import { Structs } from "node-napcat-ts";
 
 import { segmentToString } from "../prompts/napcat_templates";
-async function reply(message: string | SendMessageSegment[], id: string, napcat: NCWebsocket): Promise<void> {
+async function reply(message: string | SendMessageSegment[], sessionId: string, napcat: NCWebsocket): Promise<void> {
     const msg = Array.isArray(message) ? message : [Structs.text(message)]
-    if (id.startsWith("g")) {
+    if (sessionId.startsWith("g")) {
         await napcat.send_group_msg({
-            group_id: Number(id.slice(1)),
+            group_id: Number(sessionId.slice(1)),
             message: msg
         })
     } else {
         await napcat.send_private_msg({
-            user_id: Number(id),
+            user_id: Number(sessionId),
             message: msg
         })
 
     }
-    console.log(`[Napcat] Sent message to ${id}: ${Array.isArray(message) ? message.map(segmentToString).join(" ") : message}`)
+    console.log(`[Napcat] Sent message to ${sessionId}: ${Array.isArray(message) ? message.map(segmentToString).join(" ") : message}`)
 }
 
 function atMe(context: GroupMessage): boolean {

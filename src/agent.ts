@@ -1,31 +1,18 @@
-import { Agent, agentLoop } from "@mariozechner/pi-agent-core";
-import type { AgentMessage, AgentOptions, AgentState } from "@mariozechner/pi-agent-core";
+import { Agent } from "@mariozechner/pi-agent-core";
+import type { AgentOptions, AgentState } from "@mariozechner/pi-agent-core";
 import type { Model } from "@mariozechner/pi-ai";
-import * as fs from "fs/promises";
 import console from "console";
 import type { GroupMessage } from "node-napcat-ts";
 
 import { readFileTool, listDirTool, webFetchTool, continueTool, pythonTool } from "./tools.ts";
 import { system_prompt } from "./prompts/sys.ts";
 
-type QQSessionExtra = {
-  chatId?: string;
-  selfId?: string;
-};
-
 class BakaAgent extends Agent {
   pendingGroupFollowUp: GroupMessage[] = [];
   toBeReplied: GroupMessage | null = null;
-  extra?: QQSessionExtra;
   constructor(options: AgentOptions) {
-    // if (options.initialState) {
-    //   options.initialState.systemPrompt += extra && extra.selfId ? `\n你的QQ号是${extra.selfId}.\n` : ""; // TODO: Prompt template
-    //   options.initialState.systemPrompt += extra && extra.groupInfo ? `\n本群信息：\n${extra.groupInfo}\n` : "";
-    //   options.initialState.systemPrompt += extra && extra.userInfo ? `\n与你对话的用户信息：\n${extra.userInfo}\n` : "";
-    // }
 
     super(options);
-    // this.extra = extra;
 
     // Group follow up processing
     this.subscribe(async (event) => {

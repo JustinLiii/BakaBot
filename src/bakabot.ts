@@ -36,9 +36,7 @@ class BakaBot {
         ]
     }
 
-    private registerMsgHandler(napcat: NCWebsocket, agent: BakaAgent) {
-        if (!agent.extra || !agent.extra.chatId) throw new Error("Agent missing chatId in extra");
-        const chatId = agent.extra.chatId;
+    private registerMsgHandler(napcat: NCWebsocket, agent: BakaAgent, sessionId: string) {
 
         agent.subscribe(async (event) => {
             if (event.type !== "message_end" || event.message.role !== "assistant") return;
@@ -54,12 +52,12 @@ class BakaBot {
                         await agent.toBeReplied.quick_action(msg, true); // this is the correct way to invoke quick action
                         agent.toBeReplied = null;
                     } else {
-                        await reply(msg, chatId, napcat);
+                        await reply(msg, sessionId, napcat);
                     }
                 }
             } else {
                 for (const msg of msgs) {
-                    await reply(msg, chatId, napcat);
+                    await reply(msg, sessionId, napcat);
                 }
             }
         })
@@ -105,7 +103,7 @@ class BakaBot {
             session = { agent: null, pending: [] };
             this.agentDict.set(id, session);
             session.agent = await this.constructAgent(event, napcat);
-            this.registerMsgHandler(napcat, session.agent);
+            this.registerMsgHandler(napcat, session.agent, id);
             console.log("[Bot] Agent created for " + id);
         } else if (!session.agent) {
             // agent is still being built, queue the message
