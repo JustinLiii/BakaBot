@@ -1,11 +1,44 @@
 
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import { Type } from "@sinclair/typebox";
+import { execSync } from 'child_process';
 import * as fs from "fs/promises";
 
 function processPath(path: string) {
   path = path.replace(/^~/, process.env.HOME!);
   return path;
+}
+
+const pythonTool: AgentTool = {
+  name: "python",
+  label: "Python Executor",  // For UI display
+  description: "Execute Python code",
+  parameters: Type.Object({
+    code: Type.String({ description: "Python code to execute" }),
+  }),
+  execute: async (toolCallId, params, signal, onUpdate) => {
+    console.log(`Executing Python code: ${params.code}`);
+    // Here you would add the actual code execution logic
+    try {
+      const output = execSync(`python3 -c "${params.code.replace(/"/g, '\\"')}" 2>&1`, { encoding: 'utf-8' });
+      return {
+        content: [{ type: "text", text: output }],
+        details: {},
+      };
+    } catch (error: any) {
+      if (error.status !== undefined) {
+        return {
+          content: [{ type: "text", text: error.stdout || error.message }],
+          details: { 
+            error: "Error executing Python code", 
+            exitCode: error.status
+          },
+        };
+      } else {
+        throw error;
+      }
+    }
+  }
 }
 
 const readFileTool: AgentTool = {
@@ -81,4 +114,4 @@ const continueTool: AgentTool = {
   }
 }
 
-export { readFileTool, listDirTool, webFetchTool, continueTool};
+export { readFileTool, listDirTool, webFetchTool, continueTool, pythonTool};

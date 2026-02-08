@@ -5,7 +5,7 @@ import * as fs from "fs/promises";
 import console from "console";
 import type { NCWebsocket, GroupMessage } from "node-napcat-ts";
 
-import { readFileTool, listDirTool, webFetchTool, continueTool } from "./tools.ts";
+import { readFileTool, listDirTool, webFetchTool, continueTool, pythonTool } from "./tools.ts";
 
 type QQSessionExtra = {
   chatId?: string;
@@ -104,7 +104,7 @@ async function buildAgent(extra: QQSessionExtra | undefined, options?: Partial<A
     getApiKey: () => process.env.SILICONFLOW_API_KEY
   }, extra);
 
-  agent.setTools([readFileTool, listDirTool, webFetchTool, continueTool]);
+  agent.setTools([readFileTool, listDirTool, webFetchTool, continueTool, pythonTool]);
 
   return agent
 }
