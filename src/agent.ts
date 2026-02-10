@@ -97,7 +97,7 @@ async function buildAgent(sessionId: string, initialState?: Partial<AgentState>)
       getApiKey: () => process.env.SILICONFLOW_API_KEY
     });
 
-  agent.setTools([readFileTool, listDirTool, webFetchTool, continueTool, pythonTool, createBashTool(sessionId)]);
+  agent.setTools([webFetchTool, continueTool, createBashTool(sessionId)]);
 
   return agent
 }
