@@ -10,6 +10,85 @@ function processPath(path: string) {
   return path;
 }
 
+// Ensure session directory exists and return absolute path
+async function getSessionPath(sessionId: string): Promise<string> {
+  const sessionPath = path.resolve(process.cwd(), "data", "sessions", sessionId);
+  await fs.mkdir(sessionPath, { recursive: true });
+  return sessionPath;
+}
+
+const createBashTool = (sessionId: string): AgentTool => ({
+  name: "bash",
+  label: "Bash Executor",
+  description: "Execute bash commands in a persistent Docker container with Python 3.11 environment. Workspace is at /workspace. Files are persistent for this session.",
+  parameters: Type.Object({
+    command: Type.String({ description: "The bash command to execute" }),
+  }),
+  execute: async (toolCallId, params: any, signal, onUpdate) => {
+    const sessionPath = await getSessionPath(sessionId);
+    console.log(`[Bash] Session: ${sessionId}, Command: ${params.command}`);
+
+    return new Promise((resolve) => {
+      const dockerArgs = [
+        "run", "--rm",
+        "-i",
+        "-v", `${sessionPath}:/workspace`,
+        "-w", "/workspace",
+        "python:3.11-slim",
+        "bash", "-c", params.command
+      ];
+
+      const proc = spawn("docker", dockerArgs);
+
+      let stdout = "";
+      let stderr = "";
+      let completed = false;
+
+      proc.stdout?.on("data", (data) => {
+        stdout += data.toString();
+      });
+
+      proc.stderr?.on("data", (data) => {
+        stderr += data.toString();
+      });
+
+      const timeoutMs = 60000;
+      const timeoutHandle = setTimeout(() => {
+        if (!completed) {
+          completed = true;
+          proc.kill("SIGKILL");
+          resolve({
+            content: [{ type: "text", text: stdout + `\n[ERROR] Command timed out after ${timeoutMs}ms\n` + stderr }],
+            details: { error: "timeout", stdout, stderr }
+          });
+        }
+      }, timeoutMs);
+
+      proc.on("close", (exitCode) => {
+        clearTimeout(timeoutHandle);
+        if (!completed) {
+          completed = true;
+          resolve({
+            content: [{ type: "text", text: stdout + (stderr ? "\nErrors/Stderr:\n" + stderr : "") }],
+            details: { exitCode, stdout, stderr },
+          });
+        }
+      });
+
+      proc.on("error", (error) => {
+        clearTimeout(timeoutHandle);
+        if (!completed) {
+          completed = true;
+          resolve({
+            content: [{ type: "text", text: `Failed to start docker: ${error.message}` }],
+            details: { error: error.message },
+          });
+        }
+      });
+    });
+  },
+});
+
 // 验证 Python 代码的安全性
 async function validatePythonCode(code: string): Promise<{
   valid: boolean;
@@ -58,26 +137,23 @@ function executePythonWithLimits(
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
   return new Promise((resolve) => {
     let completed = false;
-    const process = spawn("python3", ["-c", code], {
-      maxBuffer: maxBufferBytes, // 5MB 缓冲区
-      timeout: timeoutMs, // 30 秒超时
-    });
+    const proc = spawn("python3", ["-c", code]);
 
     let stdout = "";
     let stderr = "";
 
-    process.stdout?.on("data", (data) => {
+    proc.stdout?.on("data", (data) => {
       stdout += data.toString();
     });
 
-    process.stderr?.on("data", (data) => {
+    proc.stderr?.on("data", (data) => {
       stderr += data.toString();
     });
 
     const timeoutHandle = setTimeout(() => {
       if (!completed) {
         completed = true;
-        process.kill("SIGKILL");
+        proc.kill("SIGKILL");
         resolve({
           stdout,
           stderr: stderr + "\n[ERROR] Process timeout after " + timeoutMs + "ms",
@@ -86,7 +162,7 @@ function executePythonWithLimits(
       }
     }, timeoutMs + 1000);
 
-    process.on("close", (exitCode) => {
+    proc.on("close", (exitCode) => {
       clearTimeout(timeoutHandle);
       if (!completed) {
         completed = true;
@@ -98,7 +174,7 @@ function executePythonWithLimits(
       }
     });
 
-    process.on("error", (error) => {
+    proc.on("error", (error) => {
       clearTimeout(timeoutHandle);
       if (!completed) {
         completed = true;
@@ -119,14 +195,14 @@ const pythonTool: AgentTool = {
   parameters: Type.Object({
     code: Type.String({ description: "Python code to execute" }),
   }),
-  execute: async (toolCallId, params, signal, onUpdate) => {
+  execute: async (toolCallId, params: any, signal, onUpdate) => {
     console.log(`Executing Python code: ${params.code}`);
 
     // 步骤1: 验证代码安全性
     const validation = await validatePythonCode(params.code);
     if (!validation.valid) {
       const errorMessages = validation.errors
-        ?.map((err) => `[${err.type}] ${err.message || err.name || "Unknown error"}`)
+        ?.map((err: any) => `[${err.type}] ${err.message || err.name || "Unknown error"}`)
         .join("\n");
       return {
         content: [
@@ -180,13 +256,10 @@ const readFileTool: AgentTool = {
   parameters: Type.Object({
     path: Type.String({ description: "File path" }),
   }),
-  execute: async (toolCallId, params, signal, onUpdate) => {
+  execute: async (toolCallId, params: any, signal, onUpdate) => {
     const path = processPath(params.path);
     console.log(`Reading file: ${path}`);
     const content = await fs.readFile(path, "utf-8");
-
-    // // Optional: stream progress
-    // onUpdate?.({ content: [{ type: "text", text: "Reading..." }], details: {} });
 
     return {
       content: [{ type: "text", text: content }],
@@ -202,7 +275,7 @@ const listDirTool: AgentTool = {
   parameters: Type.Object({
     path: Type.String({ description: "Directory path" }),
   }),
-  execute: async (toolCallId, params, signal, onUpdate) => {
+  execute: async (toolCallId, params: any, signal, onUpdate) => {
     const path = processPath(params.path);
     console.log(`Listing directory: ${path}`);
     const entries = await fs.readdir(path, { recursive: false});
@@ -221,7 +294,7 @@ const webFetchTool: AgentTool = {
   parameters: Type.Object({
     url: Type.String({ description: "URL to fetch" }),
   }),
-  execute: async (toolCallId, params, signal, onUpdate) => {
+  execute: async (toolCallId, params: any, signal, onUpdate) => {
     console.log(`Fetching URL: ${params.url}`);
     const url = "https://r.jina.ai/" + params.url
     const response = await fetch(url);
@@ -237,7 +310,7 @@ const continueTool: AgentTool = {
   label: "Continue",
   description: "Call this tool if you want to continue your response in the next turn",
   parameters: Type.Object({}),
-  execute: async (toolCallId, params, signal, onUpdate) => {
+  execute: async (toolCallId, params: any, signal, onUpdate) => {
     console.log(`Continuing response`);
     return {
       content: [{ type: "text", text: "Please continue your response..." }],
@@ -246,4 +319,4 @@ const continueTool: AgentTool = {
   }
 }
 
-export { readFileTool, listDirTool, webFetchTool, continueTool, pythonTool};
+export { readFileTool, listDirTool, webFetchTool, continueTool, pythonTool, createBashTool};

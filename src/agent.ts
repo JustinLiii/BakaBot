@@ -4,14 +4,14 @@ import type { Model } from "@mariozechner/pi-ai";
 import console from "console";
 import type { GroupMessage } from "node-napcat-ts";
 
-import { readFileTool, listDirTool, webFetchTool, continueTool, pythonTool } from "./tools.ts";
+import { readFileTool, listDirTool, webFetchTool, continueTool, pythonTool, createBashTool } from "./tools.ts";
 import { system_prompt } from "./prompts/sys.ts";
 
 class BakaAgent extends Agent {
   pendingGroupFollowUp: GroupMessage[] = [];
   toBeReplied: GroupMessage | null = null;
-  constructor(options: AgentOptions) {
 
+  constructor(options: AgentOptions) {
     super(options);
 
     // Group follow up processing
@@ -68,7 +68,7 @@ class BakaAgent extends Agent {
   }
 }
 
-async function buildAgent(initialState?: Partial<AgentState>): Promise<BakaAgent> {
+async function buildAgent(sessionId: string, initialState?: Partial<AgentState>): Promise<BakaAgent> {
   const model: Model<'openai-completions'> = {
     id: 'deepseek-ai/DeepSeek-V3.2',
     name: 'DeepSeek-V3.2 (SiliconFlow)',
@@ -89,6 +89,7 @@ async function buildAgent(initialState?: Partial<AgentState>): Promise<BakaAgent
 
   const agent = new BakaAgent(
     {
+      sessionId: sessionId,
       initialState: {
         ...defaultState,
         ...initialState,
@@ -96,7 +97,7 @@ async function buildAgent(initialState?: Partial<AgentState>): Promise<BakaAgent
       getApiKey: () => process.env.SILICONFLOW_API_KEY
     });
 
-  agent.setTools([readFileTool, listDirTool, webFetchTool, continueTool, pythonTool]);
+  agent.setTools([readFileTool, listDirTool, webFetchTool, continueTool, pythonTool, createBashTool(sessionId)]);
 
   return agent
 }

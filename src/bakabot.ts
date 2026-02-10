@@ -6,6 +6,7 @@ import { formatGroupInfo, formatGroupMemberList, groupPrompt, privatePrompt, eve
 import { triggered, get_text_content } from "./utils/agent_utils";
 import { atMe, getId, reply } from "./utils/napcat_utils";
 import { system_prompt } from "./prompts/sys";
+import { Structs } from "node-napcat-ts";
 
 type PrivateMsgHandler = (event: PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent) => Promise<void>;
 type GroupMsgHandler = (event: GroupMessage, agent: BakaAgent) => Promise<void>;
@@ -49,7 +50,7 @@ class BakaBot {
             if (agent.toBeReplied){
                 for (const msg of msgs) {
                     if (agent.toBeReplied) {
-                        await agent.toBeReplied.quick_action(msg, true); // this is the correct way to invoke quick action
+                        await agent.toBeReplied.quick_action(msg, true); // Ignore the type hint here. It is the correct way to invoke quick action by passing string directly.
                         agent.toBeReplied = null;
                     } else {
                         await reply(msg, sessionId, napcat);
@@ -65,6 +66,7 @@ class BakaBot {
 
     private async constructAgent(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, napcat: NCWebsocket): Promise<BakaAgent> {
         let sys_prompt: string = system_prompt;
+        const sessionId = getId(event);
         if (event.message_type === "group") {
             const group_info_str = formatGroupInfo(await napcat.get_group_info({ group_id: event.group_id }))
             const group_member_list_str = formatGroupMemberList(await napcat.get_group_member_list({ group_id: event.group_id }))
@@ -86,7 +88,7 @@ class BakaBot {
             }
         }
 
-        return await buildAgent({
+        return await buildAgent(sessionId, {
             systemPrompt: sys_prompt,
         });
     }
