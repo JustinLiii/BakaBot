@@ -9,6 +9,8 @@ bun install
 To run:
 
 ```bash
+# 第一次运行前请先拉取镜像，否则 Agent 第一次执行 Bash 指令时会因为拉取镜像耗时过长而导致超时失败
+docker pull python:3.11-slim
 bun run index.ts
 ```
 
