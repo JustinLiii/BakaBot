@@ -3,7 +3,8 @@
   "module": "index.ts",
   "dependencies": {
     "@mariozechner/pi-agent-core": "^0.51.2",
-    "node-napcat-ts": "^0.4.21"
+    "node-napcat-ts": "^0.4.21",
+    "voy-search": "^0.6.3"
   },
   "devDependencies": {
     "@types/bun": "latest",

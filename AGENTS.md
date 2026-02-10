@@ -41,6 +41,7 @@ This repository contains **BakaBot**, a TypeScript-based bot powered by the `pi-
 
 ### 4. Imports & Modules
 - **ESM Extensions**: Always include the `.ts` or `.js` extension in local relative imports (e.g., `import { tools } from "./tools.ts"`).
+- **Napcat Node**: Check doc and API references for usage from ![什么是 node-napcat-ts](https://node-napcat-ts.huankong.top/guide/what-is-node-napcat-ts)
 - **Organization**: 
   1. External library imports (e.g., `@mariozechner/pi-agent-core`).
   2. Local module imports (e.g., `./agent.ts`).
@@ -63,6 +64,10 @@ This repository contains **BakaBot**, a TypeScript-based bot powered by the `pi-
 ---
 
 ## 🤖 Integration Rules
+
+### 💾 Data Persistence
+- **Bash Tool Workspace**: Stored in `data/sessions/[sessionId]/workspace/`. This directory is mounted as `/workspace` in the Docker container.
+- **RAG Storage**: Stored in `data/sessions/[sessionId]/rag/`. Contains `rag_index.json` (vector index) and `rag_metadata.json` (message history).
 
 ### Important Notice
 - **Differentiate Between Coding Instructions And Project Content**: This is a project about AI agent. Avoid mixing coding instructions with instruction for the AI agent itself. 

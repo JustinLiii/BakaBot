@@ -12,7 +12,7 @@ function processPath(path: string) {
 
 // Ensure session directory exists and return absolute path
 async function getSessionPath(sessionId: string): Promise<string> {
-  const sessionPath = path.resolve(process.cwd(), "data", "sessions", sessionId);
+  const sessionPath = path.resolve(process.cwd(), "data", "sessions", sessionId, "workspace");
   await fs.mkdir(sessionPath, { recursive: true });
   return sessionPath;
 }
