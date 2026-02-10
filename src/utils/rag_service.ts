@@ -16,6 +16,7 @@ export class RagService {
   private indexPath: string;
   private metadataPath: string;
   private items: RagItem[] = [];
+  private initialized = false;
 
   constructor(sessionId: string) {
     this.sessionId = sessionId;
@@ -26,6 +27,7 @@ export class RagService {
   }
 
   async init() {
+    if (this.initialized) return;
     await fs.mkdir(this.storagePath, { recursive: true });
     try {
       const indexData = await fs.readFile(this.indexPath, "utf-8");
@@ -41,6 +43,7 @@ export class RagService {
       this.voy = new Voy();
       this.items = [];
     }
+    this.initialized = true;
   }
 
   private async getEmbedding(text: string): Promise<number[]> {
@@ -61,14 +64,45 @@ export class RagService {
     }
 
     const data = (await response.json()) as { data: { embedding: number[] }[] };
-    if (!data.data || data.data.length === 0 || !data.data[0]) {
+    if (!data || !data.data || data.data.length === 0 || !data.data[0]) {
       throw new Error("No embedding returned from API");
     }
     return data.data[0].embedding;
   }
 
+  private async rerank(query: string, documents: string[]): Promise<number[]> {
+    if (documents.length === 0) return [];
+
+    const response = await fetch("https://api.siliconflow.cn/v1/rerank", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.SILICONFLOW_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: "BAAI/bge-reranker-v2-m3",
+        query: query,
+        documents: documents,
+        top_n: documents.length,
+        return_documents: false
+      })
+    });
+
+    if (!response.ok) {
+      console.error("[RAG] Rerank API failed:", await response.text());
+      return documents.map(() => 1.0); // Fallback: return full scores if API fails
+    }
+
+    const data = await response.json();
+    const scores = new Array(documents.length).fill(0);
+    for (const result of data.results) {
+      scores[result.index] = result.relevance_score;
+    }
+    return scores;
+  }
+
   /**
-   * Converts a message to a searchable string representation for embedding.
+   * Converts a message to a searchable string representation for embedding/reranking.
    */
   private stringifyMessage(msg: AgentMessage): string {
     let content = get_text_content(msg);
@@ -115,7 +149,8 @@ export class RagService {
     let high = this.items.length;
     while (low < high) {
       const mid = (low + high) >>> 1;
-      if ((this.items[mid].timestamp || 0) < timestamp) low = mid + 1;
+      const midItem = this.items[mid];
+      if (midItem && (midItem.timestamp || 0) < timestamp) low = mid + 1;
       else high = mid;
     }
     this.items.splice(low, 0, item);
@@ -124,54 +159,70 @@ export class RagService {
   }
 
   /**
-   * Searches for relevant messages and optionally returns surrounding context.
+   * Searches for relevant messages using Recall + Rerank.
    * @param query The search query
-   * @param limit Number of direct matches to find
-   * @param contextWindow Number of messages to include before and after each match
+   * @param threshold Minimum relevance score (0.0 to 1.0)
+   * @param recallLimit Number of initial candidates to find via vector search
+   * @param contextWindow Number of messages to include before and after each filtered match
    */
-  async search(query: string, limit: number = 3, contextWindow: number = 2): Promise<RagItem[]> {
+  async search(query: string, threshold: number = 0.01, recallLimit: number = 10, contextWindow: number = 1): Promise<RagItem[]> {
     if (this.items.length === 0) return [];
     
+    // 1. Recall (Vector Search)
     const queryVector = await this.getEmbedding(query);
-    const results = this.voy.search(new Float32Array(queryVector), limit);
+    const results = this.voy.search(new Float32Array(queryVector), recallLimit);
     
+    if (results.neighbors.length === 0) return [];
+
+    // Map recall results to unique items
+    const recallItems: RagItem[] = [];
+    const recallIndices: number[] = [];
+    for (const neighbor of results.neighbors) {
+      let low = 0;
+      let high = this.items.length - 1;
+      while (low <= high) {
+        const mid = (low + high) >>> 1;
+        const midItem = this.items[mid];
+        if (!midItem) break;
+        if (midItem.id === neighbor.id) {
+          recallItems.push(midItem);
+          recallIndices.push(mid);
+          break;
+        }
+        if (midItem.id < neighbor.id) low = mid + 1;
+        else high = mid - 1;
+      }
+    }
+
+    if (recallItems.length === 0) return [];
+
+    // 2. Rerank
+    const docsToRerank = recallItems.map(item => this.stringifyMessage(item));
+    const scores = await this.rerank(query, docsToRerank);
+
+    // 3. Filter and Expand Context
     const resultIds = new Set<string>();
     const finalItems: RagItem[] = [];
 
-    for (const neighbor of results.neighbors) {
-      // Since ids are prefixed with timestamp and items are sorted by timestamp,
-      // we can use binary search on id (string comparison)
-      let low = 0;
-      let high = this.items.length - 1;
-      let matchIndex = -1;
+    for (let i = 0; i < recallItems.length; i++) {
+      if (scores[i] < threshold) continue;
 
-      while (low <= high) {
-        const mid = (low + high) >>> 1;
-        const midId = this.items[mid].id;
-        if (midId === neighbor.id) {
-          matchIndex = mid;
-          break;
-        }
-        if (midId < neighbor.id) low = mid + 1;
-        else high = mid - 1;
-      }
-
-      if (matchIndex === -1) continue;
-
+      const matchIndex = recallIndices[i];
       // Calculate window range
       const start = Math.max(0, matchIndex - contextWindow);
       const end = Math.min(this.items.length - 1, matchIndex + contextWindow);
 
-      for (let i = start; i <= end; i++) {
-        const item = this.items[i];
+      for (let j = start; j <= end; j++) {
+        const item = this.items[j];
         if (item && !resultIds.has(item.id)) {
           resultIds.add(item.id);
           finalItems.push(item);
         }
+        
       }
     }
 
-    // Ensure chronological order across multiple matches
+    // As the items are added in order, finalItems should already be sorted by timestamp
     return finalItems
   }
 

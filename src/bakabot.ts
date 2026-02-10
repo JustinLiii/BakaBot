@@ -50,6 +50,7 @@ class BakaBot {
             if (agent.toBeReplied){
                 for (const msg of msgs) {
                     if (agent.toBeReplied) {
+                        // @ts-ignore
                         await agent.toBeReplied.quick_action(msg, true); // Ignore the type hint here. It is the correct way to invoke quick action by passing string directly.
                         agent.toBeReplied = null;
                     } else {
@@ -173,10 +174,7 @@ class BakaBot {
         }
         const at = atMe(context)
         if (!at && !(await triggered(text, agent))) {
-            if (agent.state.messages.length + 1 > this.groupContextLimit) {
-                agent.state.messages = agent.state.messages.slice(-(this.groupContextLimit - 1))
-            }
-            agent.state.messages.push(msg)
+            await agent.addMessage(msg);
             return 
         }
         
