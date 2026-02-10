@@ -34,7 +34,7 @@ export class RagService {
       this.voy = Voy.deserialize(indexData);
       
       const metadataData = await fs.readFile(this.metadataPath, "utf-8");
-      this.items = JSON.parse(metadataData);
+      this.items = JSON.parse(metadataData) as RagItem[];
       // Ensure items are sorted after load
       this.items.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
       console.log(`[RAG] Loaded ${this.items.length} items for session ${this.sessionId}`);
@@ -93,8 +93,9 @@ export class RagService {
       return documents.map(() => 1.0); // Fallback: return full scores if API fails
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as { results: { index: number; relevance_score: number }[] };
     const scores = new Array(documents.length).fill(0);
+    if (!data || !data.results || data.results.length !== documents.length) throw new Error("Errorous rerank results returned from API, raw response: " + await response.text());
     for (const result of data.results) {
       scores[result.index] = result.relevance_score;
     }
@@ -138,7 +139,7 @@ export class RagService {
     this.voy.add({
       embeddings: [{
         id: id,
-        title: "", // Space saving: don't store text twice
+        title: "",
         url: "", 
         embeddings: embedding
       }]
@@ -198,32 +199,31 @@ export class RagService {
 
     // 2. Rerank
     const docsToRerank = recallItems.map(item => this.stringifyMessage(item));
-    const scores = await this.rerank(query, docsToRerank);
+    const scores = await this.rerank(query, docsToRerank); // should match recallItems length
 
-    // 3. Filter and Expand Context
-    const resultIds = new Set<string>();
-    const finalItems: RagItem[] = [];
+    // 3. Filter and Expand Context (collecting unique indices to maintain chronological order)
+    const resultIndicesSet = new Set<number>();
 
     for (let i = 0; i < recallItems.length; i++) {
-      if (scores[i] < threshold) continue;
+      const score = scores[i] as number; // returned scores should align with recallItems
+      if (score < threshold) continue;
 
-      const matchIndex = recallIndices[i];
+      const matchIndex = recallIndices[i] as number; // recallIndices should have same length as recallItems
+
       // Calculate window range
       const start = Math.max(0, matchIndex - contextWindow);
       const end = Math.min(this.items.length - 1, matchIndex + contextWindow);
 
       for (let j = start; j <= end; j++) {
-        const item = this.items[j];
-        if (item && !resultIds.has(item.id)) {
-          resultIds.add(item.id);
-          finalItems.push(item);
-        }
-        
+        resultIndicesSet.add(j);
       }
     }
 
-    // As the items are added in order, finalItems should already be sorted by timestamp
-    return finalItems
+    // Return items mapped from sorted unique indices
+    return Array.from(resultIndicesSet)
+      .sort((a, b) => a - b)
+      .map(idx => this.items[idx])
+      .filter((item): item is RagItem => !!item);
   }
 
   async save() {
