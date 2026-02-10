@@ -20,7 +20,7 @@ async function getSessionPath(sessionId: string): Promise<string> {
 const createBashTool = (sessionId: string): AgentTool => ({
   name: "bash",
   label: "Bash Executor",
-  description: "Execute bash commands in a persistent Docker container with Python 3.11 environment. Workspace is at /workspace. Files are persistent for this session.",
+  description: "Execute bash commands in a persistent Docker container with Python 3.11 environment. Workspace is at /workspace. Files are persistent for this session. Limits: 512MB RAM, 0.5 CPU.",
   parameters: Type.Object({
     command: Type.String({ description: "The bash command to execute" }),
   }),
@@ -32,6 +32,8 @@ const createBashTool = (sessionId: string): AgentTool => ({
       const dockerArgs = [
         "run", "--rm",
         "-i",
+        "--memory", "512m",
+        "--cpus", "0.5",
         "-v", `${sessionPath}:/workspace`,
         "-w", "/workspace",
         "python:3.11-slim",
