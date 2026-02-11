@@ -28,19 +28,17 @@ export class RagService {
 
   async init() {
     if (this.initialized) return;
-    await fs.mkdir(this.storagePath, { recursive: true });
-    try {
+    if (await fs.exists(this.indexPath) && await fs.exists(this.metadataPath)) {
       const indexData = await fs.readFile(this.indexPath, "utf-8");
       this.voy = Voy.deserialize(indexData);
       
       const metadataData = await fs.readFile(this.metadataPath, "utf-8");
       this.items = JSON.parse(metadataData) as RagItem[];
-      // Ensure items are sorted after load
-      this.items.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+      // Items are always sorted
       console.log(`[RAG] Loaded ${this.items.length} items for session ${this.sessionId}`);
-    } catch (e) {
+    } else {
       console.log(`[RAG] Initializing new index for session ${this.sessionId}`);
-      this.voy = new Voy();
+      await fs.mkdir(this.storagePath, { recursive: true });
       this.items = [];
     }
     this.initialized = true;
@@ -124,7 +122,6 @@ export class RagService {
 
     return content;
   }
-
   async add(msg: AgentMessage) {
     const textToEmbed = this.stringifyMessage(msg);
     if (!textToEmbed.trim()) return;

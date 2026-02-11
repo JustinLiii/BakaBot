@@ -1,5 +1,5 @@
 import { Agent } from "@mariozechner/pi-agent-core";
-import type { AgentOptions, AgentState, AgentMessage } from "@mariozechner/pi-agent-core";
+import type { AgentOptions, AgentState, AgentMessage, AgentEvent } from "@mariozechner/pi-agent-core";
 import type { Model, ImageContent, TextContent } from "@mariozechner/pi-ai";
 import console from "console";
 import type { GroupMessage } from "node-napcat-ts";
@@ -13,69 +13,30 @@ class BakaAgent extends Agent {
   pendingGroupFollowUp: GroupMessage[] = [];
   toBeReplied: GroupMessage | null = null;
   rag: RagService;
-  contextLimit = 15;
-  private lastIndexedIndex = 0;
+  contextPruneTriggerSize = 20; // Actural working context size could be larger as pruning could only be triggered at agent_end
 
   constructor(options: AgentOptions) {
     super(options);
     this.rag = new RagService(options.sessionId!);
 
-    // Group follow up processing
+    // Dispatch events
     this.subscribe(async (event) => {
-      if (event.type !== "agent_end" || this.pendingGroupFollowUp.length <= 0) return;
-      // Process pending follow ups
-      const followUp = this.pendingGroupFollowUp.shift()!;
-      const msg = followUp.raw_message;
-      console.log("Processing follow up: " + msg);
-      this.toBeReplied = followUp;
-      // Add without immediate indexing, it will be indexed in the next agent_end
-      this.appendMessage({ role: 'user', content: msg, timestamp: Date.now() });
-      this.continue();
-    })
+      switch (event.type) {
+        case "agent_end":
+          await this.ContextPruningAndIndexing(event);
 
-    // RAG Logic: Context pruneing and indexing
-    this.subscribe(async (event) => {
-        if (event.type !== "agent_end") return;
-        // 1. Index everything new in history before pruning
-        await this.indexPendingMessages();
-
-        // 2. Prune history
-        if (this.state.messages.length > this.contextLimit) {
-          const removedCount = this.state.messages.length - this.contextLimit;
-          this.state.messages = this.state.messages.slice(-this.contextLimit);
-          this.lastIndexedIndex = Math.max(0, this.lastIndexedIndex - removedCount);
-        }
-    })
-
-    // RAG Logic: Context Injection
-    this.subscribe(async (event) => {
-      if (event.type !== "message_start" || event.message.role !== "user") return;
-      try {
-        await this.rag.init();
-        const query = get_text_content(event.message);
-        const memories = await this.rag.search(query);
-        
-        if (memories.length > 0) {
-          const memoryText = memories
-            .map(m => `[Memory ${new Date(m.timestamp!).toLocaleString()}] ${m.role}: ${get_text_content(m)}`)
-            .join("\n");
-          const injection = `\n\n[Historical Context]\n${memoryText}\n[End Context]\n\n`;
+          // process follow up in the end
+          await this.ProcessGroupFollowUp(event);
+          break;
           
-          if (typeof event.message.content === "string") {
-            event.message.content = injection + "新消息：" + event.message.content;
-          } else {
-            const textIdx = event.message.content.findIndex(c => (c as any).type === "text");
-            if (textIdx !== -1) {
-              (event.message.content[textIdx] as TextContent).text = injection + "新消息：" + (event.message.content[textIdx] as TextContent).text;
-            } else {
-              event.message.content.unshift({ type: "text", text: injection } as any);
-            }
-          }
-        }
-      } catch (e) {
-        console.error("[RAG] Injection failed:", e);
+        case "message_start":
+          await this.RAGContextInjection(event);
+          break;
+
+        default:
+          break;
       }
-    });
+    })
 
 
     // logging
@@ -113,31 +74,83 @@ class BakaAgent extends Agent {
     })
   }
 
-  /**
-   * Indexes all messages in history that haven't been indexed yet.
-   */
-  private async indexPendingMessages() {
-    try {
-      await this.rag.init();
-      const pending = this.state.messages.slice(this.lastIndexedIndex);
-      for (const msg of pending) {
-        await this.rag.add(msg);
+  private async RAGContextInjection(event: { type: "message_start"; message: AgentMessage; }) { 
+    if (event.message.role !== "user") return;
+    await this.rag.init();
+    const query = get_text_content(event.message);
+    const memories = await this.rag.search(query);
+    
+    if (memories.length > 0) {
+      const memoryText = memories
+        .map(m => `[Memory ${new Date(m.timestamp!).toLocaleString()}] ${m.role}: ${get_text_content(m)}`)
+        .join("\n");
+      const injection = `\n\n[Historical Context]\n${memoryText}\n[End Context]\n\n`;
+      
+      if (typeof event.message.content === "string") {
+        event.message.content = injection + "新消息：" + event.message.content;
+      } else {
+        const textIdx = event.message.content.findIndex(c => (c as any).type === "text");
+        if (textIdx !== -1) {
+          (event.message.content[textIdx] as TextContent).text = injection + "新消息：" + (event.message.content[textIdx] as TextContent).text;
+        } else {
+          event.message.content.unshift({ type: "text", text: injection } as any);
+        }
       }
-      this.lastIndexedIndex = this.state.messages.length;
-    } catch (e) {
-      console.error("[RAG] Indexing failed:", e);
     }
   }
 
+  private ProcessGroupFollowUp(event: { type: "agent_end"; messages: AgentMessage[];}) {
+    if (this.pendingGroupFollowUp.length <= 0) return;
+    // Process pending follow ups
+    const followUp = this.pendingGroupFollowUp.shift()!;
+    const msg = followUp.raw_message;
+    console.log("Processing follow up: " + msg);
+    this.toBeReplied = followUp;
+    // Add without immediate indexing, it will be indexed in the next agent_end
+    this.appendMessage({ role: 'user', content: msg, timestamp: Date.now() });
+    this.continue();
+  }
+
+  private async ContextPruningAndIndexing(event: { type: "agent_end"; messages: AgentMessage[];}) { 
+    if (this.state.messages.length <= this.contextPruneTriggerSize) return;
+
+    // calculate remove size
+    const minRemoveSize = Math.max(0, this.state.messages.length - this.contextPruneTriggerSize);
+    let removeSize = minRemoveSize;
+    for (let i = removeSize; i < this.state.messages.length; i++) {
+      const msg = this.state.messages[i] as AgentMessage;
+      if (msg.role === "user") {
+        removeSize = i; // Prune until user message
+        break;
+      }
+    }
+
+    // 1. Index everything to be removed before pruning
+    await this.indexMessages(this.state.messages.slice(undefined, removeSize));
+
+    // 2. Prune history
+    this.state.messages = this.state.messages.slice(removeSize, undefined);
+  }
+
   /**
-   * Adds a message to the conversation history. 
-   * Context limit and indexing are handled automatically at agent_end.
+   * Indexes all messages in history that haven't been indexed yet.
    */
-  async addMessage(msg: AgentMessage, index: boolean = true) {
-    this.appendMessage(msg);
-    // If we're not in an agent loop, we should index immediately to avoid losing it
-    if (index && !this.state.isStreaming) {
-      await this.indexPendingMessages();
+  private async indexMessages(messages: AgentMessage[]) {
+    await this.rag.init(); // always call init before using rag. It's a no-op if already initialized.
+    for (const msg of messages) {
+      if (typeof msg.content === "string") {
+        const spilts = msg.content.split("[End Context]\n\n");
+         msg.content = (spilts[spilts.length - 1] as string);
+      } else {
+        const textIdx = msg.content.findIndex(c => (c as any).type === "text");
+        if (textIdx !== -1) {
+            const splits = (msg.content[textIdx] as TextContent).text.split("[End Context]\n\n");
+            (msg.content[textIdx] as TextContent).text = (splits[splits.length - 1] as string)
+        } else {
+          continue; // Nothing to memorize
+        }
+      }
+      await this.rag.add(msg);
     }
   }
 
