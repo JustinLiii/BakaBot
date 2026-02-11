@@ -1,47 +1,64 @@
-
-import * as fs from "fs/promises";
 import * as path from "path";
-import { Voy } from "voy-search";
+import * as lancedb from "@lancedb/lancedb";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { get_text_content } from "./agent_utils.ts";
+import * as arrow from "apache-arrow";
 
-export type RagItem = AgentMessage & {
-  id: string;
+const RagSchema = new arrow.Schema([
+  new arrow.Field("role", new arrow.Utf8()),
+  new arrow.Field("content", new arrow.Utf8()),
+  new arrow.Field("timestamp", new arrow.Int8()),
+  new arrow.Field(
+    "vector",
+    new arrow.FixedSizeList(
+      1024, // BAAI/bge-m3
+      new arrow.Field("item", new arrow.Float32(), true),
+    ),
+  ),
+]);
+
+type RagItem = {
+  role: string;
+  content: string;
+  timestamp: number;
+  vector: number[];
 };
 
 export class RagService {
-  private voy: Voy;
+  private DEFAULT_TABLE_NAME = "memory";
+
+  private db: lancedb.Connection | undefined;
+  private table: lancedb.Table | undefined;
   private sessionId: string;
   private storagePath: string;
-  private indexPath: string;
-  private metadataPath: string;
-  private items: RagItem[] = [];
-  private initialized = false;
+  // private indexPath: string;
+  // private initialized = false;
 
   constructor(sessionId: string) {
     this.sessionId = sessionId;
     this.storagePath = path.resolve(process.cwd(), "data", "sessions", sessionId, "rag");
-    this.indexPath = path.join(this.storagePath, "rag_index.json");
-    this.metadataPath = path.join(this.storagePath, "rag_metadata.json");
-    this.voy = new Voy();
+    // this.indexPath = path.join(this.storagePath, "rag_index.json");
+    // this.metadataPath = path.join(this.storagePath, "rag_metadata.json");
   }
 
-  async init() {
-    if (this.initialized) return;
-    if (await fs.exists(this.indexPath) && await fs.exists(this.metadataPath)) {
-      const indexData = await fs.readFile(this.indexPath, "utf-8");
-      this.voy = Voy.deserialize(indexData);
-      
-      const metadataData = await fs.readFile(this.metadataPath, "utf-8");
-      this.items = JSON.parse(metadataData) as RagItem[];
-      // Items are always sorted
-      console.log(`[RAG] Loaded ${this.items.length} items for session ${this.sessionId}`);
-    } else {
-      console.log(`[RAG] Initializing new index for session ${this.sessionId}`);
-      await fs.mkdir(this.storagePath, { recursive: true });
-      this.items = [];
+  private async GetTable(): Promise<lancedb.Table> {
+    if (!this.db) this.db = await lancedb.connect(this.storagePath);
+    try {
+        if (!this.table) this.table = await this.db.openTable(this.DEFAULT_TABLE_NAME);
+    } catch (e) {
+      if (e instanceof Error && e.message.includes(`Table '${this.DEFAULT_TABLE_NAME}' was not found`)) {
+        this.table = await this.db.createEmptyTable(this.DEFAULT_TABLE_NAME, RagSchema)
+      } else {
+        throw e;
+      }
     }
-    this.initialized = true;
+    return this.table;
+  }
+
+  private async PeriodicOptimize(table: lancedb.Table) {
+    if((await table.stats()).numRows % 1000 === 0) {
+      table.optimize();
+    }
   }
 
   private async getEmbedding(text: string): Promise<number[]> {
@@ -125,35 +142,16 @@ export class RagService {
   async add(msg: AgentMessage) {
     const textToEmbed = this.stringifyMessage(msg);
     if (!textToEmbed.trim()) return;
-    
-    const timestamp = msg.timestamp || Date.now();
-    const id = `${timestamp}-${Math.random().toString(36).substring(2, 9)}`;
-    const embedding = await this.getEmbedding(textToEmbed);
-    
-    const item: RagItem = { ...msg, id, timestamp } as RagItem;
-    
-    // Voy adds items
-    this.voy.add({
-      embeddings: [{
-        id: id,
-        title: "",
-        url: "", 
-        embeddings: embedding
-      }]
-    });
-    
-    // Maintain sorted order by timestamp using insertion sort logic (binary search for index)
-    let low = 0;
-    let high = this.items.length;
-    while (low < high) {
-      const mid = (low + high) >>> 1;
-      const midItem = this.items[mid];
-      if (midItem && (midItem.timestamp || 0) < timestamp) low = mid + 1;
-      else high = mid;
+    const item: RagItem = {
+      role: msg.role,
+      content: textToEmbed,
+      timestamp: msg.timestamp || Date.now(),
+      vector: await this.getEmbedding(textToEmbed),
     }
-    this.items.splice(low, 0, item);
-    
-    await this.save();
+
+    const table = await this.GetTable();
+    table.add([item]);
+    this.PeriodicOptimize(table);
   }
 
   /**
@@ -163,69 +161,32 @@ export class RagService {
    * @param recallLimit Number of initial candidates to find via vector search
    * @param contextWindow Number of messages to include before and after each filtered match
    */
-  async search(query: string, threshold: number = 0.01, recallLimit: number = 10, contextWindow: number = 1): Promise<RagItem[]> {
-    if (this.items.length === 0) return [];
-    
+  async search(query: string, threshold: number = 0.01, recallLimit: number = 10, contextWindow: number = 1): Promise<AgentMessage[]> {
+
     // 1. Recall (Vector Search)
+    const table = await this.GetTable();
     const queryVector = await this.getEmbedding(query);
-    const results = this.voy.search(new Float32Array(queryVector), recallLimit);
+    const results = await table.search(queryVector).limit(recallLimit).toArray() as RagItem[];
     
-    if (results.neighbors.length === 0) return [];
-
-    // Map recall results to unique items
-    const recallItems: RagItem[] = [];
-    const recallIndices: number[] = [];
-    for (const neighbor of results.neighbors) {
-      let low = 0;
-      let high = this.items.length - 1;
-      while (low <= high) {
-        const mid = (low + high) >>> 1;
-        const midItem = this.items[mid];
-        if (!midItem) break;
-        if (midItem.id === neighbor.id) {
-          recallItems.push(midItem);
-          recallIndices.push(mid);
-          break;
-        }
-        if (midItem.id < neighbor.id) low = mid + 1;
-        else high = mid - 1;
-      }
-    }
-
-    if (recallItems.length === 0) return [];
+    if (results.length === 0) return [];
 
     // 2. Rerank
-    const docsToRerank = recallItems.map(item => this.stringifyMessage(item));
-    const scores = await this.rerank(query, docsToRerank); // should match recallItems length
+    const docsToRerank = results.map(item => item.content);
+    const scores = await this.rerank(query, docsToRerank); // should match results length
 
-    // 3. Filter and Expand Context (collecting unique indices to maintain chronological order)
-    const resultIndicesSet = new Set<number>();
-
-    for (let i = 0; i < recallItems.length; i++) {
-      const score = scores[i] as number; // returned scores should align with recallItems
-      if (score < threshold) continue;
-
-      const matchIndex = recallIndices[i] as number; // recallIndices should have same length as recallItems
-
-      // Calculate window range
-      const start = Math.max(0, matchIndex - contextWindow);
-      const end = Math.min(this.items.length - 1, matchIndex + contextWindow);
-
-      for (let j = start; j <= end; j++) {
-        resultIndicesSet.add(j);
-      }
-    }
+    // 3. Filter and Expand Context 
+    // TODO: get histories just before and after the retrived item
 
     // Return items mapped from sorted unique indices
-    return Array.from(resultIndicesSet)
-      .sort((a, b) => a - b)
-      .map(idx => this.items[idx])
-      .filter((item): item is RagItem => !!item);
-  }
-
-  async save() {
-    const indexData = this.voy.serialize();
-    await fs.writeFile(this.indexPath, indexData, "utf-8");
-    await fs.writeFile(this.metadataPath, JSON.stringify(this.items), "utf-8");
+    return Array.from(results)
+      .sort((a, b) => a.timestamp - b.timestamp)
+      .filter((item, i) => scores[i]! >= threshold)
+      .map((item) => {
+        return {
+          role: item.role,
+          content: item.content,
+          timestamp: item.timestamp,
+        } as AgentMessage;
+      })
   }
 }

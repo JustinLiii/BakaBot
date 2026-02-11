@@ -2,9 +2,10 @@
   "name": "bakabot",
   "module": "index.ts",
   "dependencies": {
+    "@lancedb/lancedb": "^0.26.2",
     "@mariozechner/pi-agent-core": "^0.51.2",
-    "node-napcat-ts": "^0.4.21",
-    "voy-search": "^0.6.3"
+    "apache-arrow": "^21.1.0",
+    "node-napcat-ts": "^0.4.21"
   },
   "devDependencies": {
     "@types/bun": "latest",

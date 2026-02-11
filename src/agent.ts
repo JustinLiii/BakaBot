@@ -76,7 +76,6 @@ class BakaAgent extends Agent {
 
   private async RAGContextInjection(event: { type: "message_start"; message: AgentMessage; }) { 
     if (event.message.role !== "user") return;
-    await this.rag.init();
     const query = get_text_content(event.message);
     const memories = await this.rag.search(query);
     
@@ -136,7 +135,6 @@ class BakaAgent extends Agent {
    * Indexes all messages in history that haven't been indexed yet.
    */
   private async indexMessages(messages: AgentMessage[]) {
-    await this.rag.init(); // always call init before using rag. It's a no-op if already initialized.
     for (const msg of messages) {
       if (typeof msg.content === "string") {
         const spilts = msg.content.split("[End Context]\n\n");
