@@ -76,6 +76,7 @@ class BakaAgent extends Agent {
 
   private async RAGContextInjection(event: { type: "message_start"; message: AgentMessage; }) { 
     if (event.message.role !== "user") return;
+    if (!this.rag.initialized) await this.rag.Initialize();
     const query = get_text_content(event.message);
     const memories = await this.rag.search(query);
     
