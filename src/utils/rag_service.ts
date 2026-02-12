@@ -31,6 +31,8 @@ export class RagService {
   private table: lancedb.Table | undefined;
   private sessionId: string;
   private storagePath: string;
+
+  initialized = false;
   // private indexPath: string;
   // private initialized = false;
 
@@ -52,6 +54,7 @@ export class RagService {
         throw e;
       }
     }
+    this.initialized = true;
   }
 
   private async PeriodicOptimize(table: lancedb.Table) {

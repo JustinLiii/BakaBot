@@ -18,7 +18,6 @@ class BakaAgent extends Agent {
   constructor(options: AgentOptions) {
     super(options);
     this.rag = new RagService(options.sessionId!);
-    this.rag.Initialize();
 
     // Dispatch events
     this.subscribe(async (event) => {
@@ -126,6 +125,7 @@ class BakaAgent extends Agent {
     }
 
     // 1. Index everything to be removed before pruning
+    if (!this.rag.initialized) await this.rag.Initialize();
     await this.rememberMessages(this.state.messages.slice(undefined, removeSize));
 
     // 2. Prune history
@@ -136,6 +136,7 @@ class BakaAgent extends Agent {
    * Indexes all messages in history that haven't been indexed yet.
    */
   private async rememberMessages(messages: AgentMessage[], includeToolResult: boolean = false) {
+    if (!this.rag.initialized) await this.rag.Initialize();
     const msg_to_memorize = includeToolResult ? messages : messages.filter(m => m.role !== "toolResult");
     for (const msg of msg_to_memorize) {
       if (typeof msg.content === "string") {
@@ -164,6 +165,7 @@ class BakaAgent extends Agent {
   }
 
   async RememberAll(includeToolResult: boolean = false) {
+    if (!this.rag.initialized) await this.rag.Initialize();
     if (includeToolResult) {
       this.state.messages.filter(m => m.role !== "toolResult").map(m =>this.rag.add(m))
     } else {
