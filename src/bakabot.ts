@@ -182,8 +182,8 @@ class BakaBot {
             timestamp: new Date().getTime()
         }
         const at = atMe(context)
-        if (!at && !(await triggered(text, agent))) {
-            await agent.appendMessage(msg);
+        if (!at) {
+            await agent.addMessage(msg);
             return 
         }
         

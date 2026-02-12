@@ -152,6 +152,11 @@ class BakaAgent extends Agent {
     }
   }
 
+  addMessage(msg: AgentMessage) {
+    this.appendMessage(msg);
+    this.ContextPruningAndIndexing({ type: "agent_end", messages: [] });
+  }
+
   GroupfollowUp(content: GroupMessage) {
     this.pendingGroupFollowUp.push(content);
   }

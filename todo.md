@@ -1,4 +1,5 @@
 - [ ] Read chat history
+- [ ] Good group chat trigger
 - [ ] Stream message for multi segment
 - [ ] 中间件
 - [ ] 计时器
