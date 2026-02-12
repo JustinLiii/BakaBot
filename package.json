@@ -5,6 +5,7 @@
     "@lancedb/lancedb": "^0.26.2",
     "@mariozechner/pi-agent-core": "^0.51.2",
     "apache-arrow": "^21.1.0",
+    "lancedb": "^0.0.1",
     "node-napcat-ts": "^0.4.21"
   },
   "devDependencies": {
