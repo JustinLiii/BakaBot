@@ -41,10 +41,10 @@ export class RagService {
     // this.metadataPath = path.join(this.storagePath, "rag_metadata.json");
   }
 
-  private async GetTable(): Promise<lancedb.Table> {
-    if (!this.db) this.db = await lancedb.connect(this.storagePath);
+  async Initialize() {
+    this.db = await lancedb.connect(this.storagePath);
     try {
-        if (!this.table) this.table = await this.db.openTable(this.DEFAULT_TABLE_NAME);
+      this.table = await this.db.openTable(this.DEFAULT_TABLE_NAME);
     } catch (e) {
       if (e instanceof Error && e.message.includes(`Table '${this.DEFAULT_TABLE_NAME}' was not found`)) {
         this.table = await this.db.createEmptyTable(this.DEFAULT_TABLE_NAME, RagSchema)
@@ -52,7 +52,6 @@ export class RagService {
         throw e;
       }
     }
-    return this.table;
   }
 
   private async PeriodicOptimize(table: lancedb.Table) {
@@ -149,9 +148,10 @@ export class RagService {
       vector: await this.getEmbedding(textToEmbed),
     }
 
-    const table = await this.GetTable();
-    table.add([item]);
-    this.PeriodicOptimize(table);
+    if (!this.table) throw new Error("RAG service not initialized, table not found.");
+
+    this.table.add([item]);
+    // this.PeriodicOptimize(this.table); TODO: concurrent access could cause additional optimization operations
   }
 
   /**
@@ -164,7 +164,8 @@ export class RagService {
   async search(query: string, threshold: number = 0.01, recallLimit: number = 10, contextWindow: number = 1): Promise<AgentMessage[]> {
 
     // 1. Recall (Vector Search)
-    const table = await this.GetTable();
+    if (!this.table) throw new Error("RAG service not initialized, table not found.");
+    const table = this.table;
     const queryVector = await this.getEmbedding(query);
     const results = await table.search(queryVector).limit(recallLimit).toArray() as RagItem[];
     
