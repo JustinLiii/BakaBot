@@ -35,8 +35,17 @@ class BakaBot {
             this.stop.bind(this),
             this.replyPrivateMsg.bind(this)
         ]
+        process.on('SIGINT', async  () => {
+            for (const [id, session] of this.agentDict) {
+                console.log(`Saving memories for seesion ${id}`);
+                if (session.agent) {
+                    await session.agent.RememberAll();
+                }
+            }
+            process.exit();
+        });
     }
-
+    
     private registerMsgHandler(napcat: NCWebsocket, agent: BakaAgent, sessionId: string) {
 
         agent.subscribe(async (event) => {
@@ -174,7 +183,7 @@ class BakaBot {
         }
         const at = atMe(context)
         if (!at && !(await triggered(text, agent))) {
-            await agent.addMessage(msg);
+            await agent.appendMessage(msg);
             return 
         }
         

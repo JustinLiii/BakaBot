@@ -155,6 +155,12 @@ class BakaAgent extends Agent {
   GroupfollowUp(content: GroupMessage) {
     this.pendingGroupFollowUp.push(content);
   }
+
+  async RememberAll() {
+    for (const msg of this.state.messages) {
+      await this.rag.add(msg);
+    }
+  }
 }
 
 async function buildAgent(sessionId: string, initialState?: Partial<AgentState>): Promise<BakaAgent> {
