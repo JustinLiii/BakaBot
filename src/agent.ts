@@ -139,6 +139,7 @@ class BakaAgent extends Agent {
   private async rememberMessages(messages: AgentMessage[], includeToolResult: boolean = false) {
     if (!this.rag.initialized) await this.rag.Initialize();
     const msg_to_memorize = includeToolResult ? messages : messages.filter(m => m.role !== "toolResult");
+    const promises = [];
     for (const msg of msg_to_memorize) {
       if (typeof msg.content === "string") {
         const spilts = msg.content.split("[End Context]\n\n");
@@ -152,8 +153,9 @@ class BakaAgent extends Agent {
           continue; // Nothing to memorize
         }
       }
-      this.rag.add(msg);
+      promises.push(this.rag.add(msg));
     }
+    await Promise.all(promises);
   }
 
   addMessage(msg: AgentMessage) {
@@ -168,9 +170,9 @@ class BakaAgent extends Agent {
   async RememberAll(includeToolResult: boolean = false) {
     if (!this.rag.initialized) await this.rag.Initialize();
     if (includeToolResult) {
-      this.state.messages.filter(m => m.role !== "toolResult").map(m =>this.rag.add(m))
+      await this.state.messages.filter(m => m.role !== "toolResult").map(m =>this.rag.add(m))
     } else {
-      this.state.messages.map(m =>this.rag.add(m))
+      await this.state.messages.map(m =>this.rag.add(m))
     }
   }
 }
