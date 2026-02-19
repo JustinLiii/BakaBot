@@ -178,15 +178,28 @@ class BakaAgent extends Agent {
 }
 
 async function buildAgent(sessionId: string, initialState?: Partial<AgentState>): Promise<BakaAgent> {
+  // const model: Model<'openai-completions'> = {
+  //   id: 'deepseek-ai/DeepSeek-V3.2',
+  //   name: 'DeepSeek-V3.2 (SiliconFlow)',
+  //   api: 'openai-completions',
+  //   provider: 'SiliconFlow',
+  //   baseUrl: 'https://api.siliconflow.cn/v1/',
+  //   reasoning: false,
+  //   input: ['text'],
+  //   cost: { input: 2, output: 3, cacheRead: 2, cacheWrite: 3 },
+  //   contextWindow: 163840,
+  //   maxTokens: 163840,
+  // };
+
   const model: Model<'openai-completions'> = {
-    id: 'deepseek-ai/DeepSeek-V3.2',
-    name: 'DeepSeek-V3.2 (SiliconFlow)',
+    id: 'deepseek-chat',
+    name: 'DeepSeek-Latest',
     api: 'openai-completions',
-    provider: 'SiliconFlow',
-    baseUrl: 'https://api.siliconflow.cn/v1/',
+    provider: 'DeepSeek',
+    baseUrl: 'https://api.deepseek.com/v1/',
     reasoning: false,
     input: ['text'],
-    cost: { input: 2, output: 3, cacheRead: 2, cacheWrite: 3 },
+    cost: { input: 2, output: 3, cacheRead: 0.2, cacheWrite: 3 },
     contextWindow: 163840,
     maxTokens: 163840,
   };
@@ -203,7 +216,8 @@ async function buildAgent(sessionId: string, initialState?: Partial<AgentState>)
         ...defaultState,
         ...initialState,
       },
-      getApiKey: () => process.env.SILICONFLOW_API_KEY
+      // getApiKey: () => process.env.SILICONFLOW_API_KEY
+      getApiKey: () => process.env.DEEPSEEK_API_KEY
     });
 
   agent.setTools([webFetchTool, continueTool, createBashTool(sessionId)]);
