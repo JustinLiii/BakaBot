@@ -37,7 +37,7 @@ class BakaBot {
         ]
         process.on('SIGINT', async  () => {
             for (const [id, session] of this.agentDict) {
-                console.log(`Saving memories for seesion ${id}`);
+                console.log(`Saving memories for session ${id}`);
                 if (session.agent) {
                     await session.agent.RememberAll();
                 }
