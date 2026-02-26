@@ -36,7 +36,7 @@ const createBashTool = (sessionId: string): AgentTool => ({
         "--cpus", "0.5",
         "-v", `${sessionPath}:/workspace`,
         "-w", "/workspace",
-        "python:3.11-slim",
+        "juztinlii/bakabot-sandbox",
         "bash", "-c", params.command
       ];
 
