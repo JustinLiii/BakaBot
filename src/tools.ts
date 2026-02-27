@@ -322,3 +322,50 @@ const continueTool: AgentTool = {
 }
 
 export { readFileTool, listDirTool, webFetchTool, continueTool, pythonTool, createBashTool};
+
+// 导入skill工具
+import { skillTool } from './skill_tool';
+
+// 在导出工具时添加skill工具
+export const createTools = (sessionId: string): AgentTool[] => {
+  const tools: AgentTool[] = [
+    createBashTool(sessionId),
+    createFileReadTool(sessionId),
+    createFileWriteTool(sessionId),
+    createListDirTool(sessionId),
+    createWebFetchTool(sessionId),
+    createContinueTool(),
+  ];
+  
+  // 添加skill工具
+  tools.push({
+    name: skillTool.name,
+    label: "Skill Manager",
+    description: skillTool.description,
+    parameters: Type.Object({
+      action: Type.String({ description: skillTool.parameters.action.description }),
+      skill_id: Type.Optional(Type.String({ description: skillTool.parameters.skill_id.description })),
+      skill_content: Type.Optional(Type.String({ description: skillTool.parameters.skill_content.description })),
+    }),
+    execute: async (toolCallId, params: any, signal, onUpdate) => {
+      try {
+        const result = await skillTool.execute(params);
+        return {
+          content: [{
+            type: "text" as const,
+            text: result
+          }]
+        };
+      } catch (error: any) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: `❌ Skill工具错误: ${error.message}`
+          }]
+        };
+      }
+    }
+  });
+  
+  return tools;
+};
