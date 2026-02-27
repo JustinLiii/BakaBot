@@ -4,7 +4,8 @@ import type { Model, ImageContent, TextContent } from "@mariozechner/pi-ai";
 import console from "console";
 import type { GroupMessage } from "node-napcat-ts";
 
-import { readFileTool, listDirTool, webFetchTool, continueTool, pythonTool, createBashTool } from "./tools.ts";
+import { webFetchTool, continueTool, createBashTool } from "./tools.ts";
+import { creatSkillTool } from "./skill_tool.ts";
 import { system_prompt } from "./prompts/sys.ts";
 import { RagService } from "./utils/rag_service.ts";
 import { get_text_content } from "./utils/agent_utils.ts";
@@ -13,7 +14,7 @@ class BakaAgent extends Agent {
   pendingGroupFollowUp: GroupMessage[] = [];
   toBeReplied: GroupMessage | null = null;
   rag: RagService;
-  contextPruneTriggerSize = 20; // Actural working context size could be larger as pruning could only be triggered at agent_end
+  contextPruneTriggerSize = 50; // Actural working context size could be larger as pruning could only be triggered at agent_end
 
   constructor(options: AgentOptions) {
     super(options);
@@ -220,7 +221,7 @@ async function buildAgent(sessionId: string, initialState?: Partial<AgentState>)
       getApiKey: () => process.env.DEEPSEEK_API_KEY
     });
 
-  agent.setTools([webFetchTool, continueTool, createBashTool(sessionId)]);
+  agent.setTools([webFetchTool, continueTool, createBashTool(sessionId), creatSkillTool(sessionId)]);
 
   return agent
 }

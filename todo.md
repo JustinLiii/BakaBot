@@ -1,4 +1,5 @@
 - [ ] Read chat history
+- [ ] Skill for installing skill
 - [ ] Good group chat trigger
 - [ ] Stream message for multi segment
 - [ ] 中间件
