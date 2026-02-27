@@ -7,9 +7,10 @@ import { triggered, get_text_content } from "./utils/agent_utils";
 import { atMe, getId, reply } from "./utils/napcat_utils";
 import { system_prompt } from "./prompts/sys";
 import { Structs } from "node-napcat-ts";
+import { StreamBuffer } from "./utils/stream_buffer";
 
-type PrivateMsgHandler = (event: PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent) => Promise<void>;
-type GroupMsgHandler = (event: GroupMessage, agent: BakaAgent) => Promise<void>;
+type PrivateMsgHandler = (event: PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent, napcat: NCWebsocket) => Promise<void>;
+type GroupMsgHandler = (event: GroupMessage, agent: BakaAgent, napcat: NCWebsocket) => Promise<void>;
 
 class BakaBot {
 
@@ -47,31 +48,49 @@ class BakaBot {
     }
     
     private registerMsgHandler(napcat: NCWebsocket, agent: BakaAgent, sessionId: string) {
-
+        // 为每个会话创建流式缓冲区
+        const streamBuffer = new StreamBuffer(async (segment: string) => {
+            if (agent.toBeReplied) {
+                // @ts-ignore
+                await agent.toBeReplied.quick_action(segment, true);
+                agent.toBeReplied = null;
+            } else {
+                await reply(segment, sessionId, napcat);
+            }
+        }, (error) => {
+            console.error(`[Stream] Error sending segment for session ${sessionId}:`, error);
+        });
+        
+        // 监听流式更新事件
         agent.subscribe(async (event) => {
-            if (event.type !== "message_end" || event.message.role !== "assistant") return;
-            const msg = get_text_content(event.message);
-
-            if (msg.length === 0) return;
-
-            // multi message sending
-            const msgs = msg.split("\n\n").filter(m => m.trim().length > 0);
-            if (agent.toBeReplied){
-                for (const msg of msgs) {
-                    if (agent.toBeReplied) {
-                        // @ts-ignore
-                        await agent.toBeReplied.quick_action(msg, true); // Ignore the type hint here. It is the correct way to invoke quick action by passing string directly.
-                        agent.toBeReplied = null;
-                    } else {
-                        await reply(msg, sessionId, napcat);
+            // 处理流式文本增量
+            if (event.type === "message_update" && 
+                event.assistantMessageEvent?.type === "text_delta") {
+                
+                const delta = event.assistantMessageEvent.delta;
+                streamBuffer.append(delta);
+            }
+            
+            // 处理消息结束（发送剩余内容）
+            if (event.type === "message_end" && event.message.role === "assistant") {
+                await streamBuffer.flush();
+                
+                // 原有的批量处理逻辑作为后备
+                const content = get_text_content(event.message);
+                if (content.length > 0) {
+                    const msgs = content.split("\n\n").filter(m => m.trim().length > 0);
+                    for (const msg of msgs) {
+                        if (agent.toBeReplied) {
+                            // @ts-ignore
+                            await agent.toBeReplied.quick_action(msg, true);
+                            agent.toBeReplied = null;
+                        } else {
+                            await reply(msg, sessionId, napcat);
+                        }
                     }
                 }
-            } else {
-                for (const msg of msgs) {
-                    await reply(msg, sessionId, napcat);
-                }
             }
-        })
+        });
     }
 
     private async constructAgent(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, napcat: NCWebsocket): Promise<BakaAgent> {
@@ -106,9 +125,7 @@ class BakaBot {
     async onMsg(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, napcat: NCWebsocket): Promise<void> {
         const msg = eventToString(event);
         const id = getId(event);
-        console.log(`[Bot] Received message in ${id}: ${msg}`);
 
-        // new seesion handling
         let session = this.agentDict.get(id);
         if (!session) {
             // build agent for new session
@@ -132,10 +149,10 @@ class BakaBot {
             const thisEvent = session.pending.shift()!;
             if (thisEvent.message_type === "group") {
                 console.log("[Bot] Processing group message for " + id)
-                for (const handle of this.processGroupMsg) await handle(thisEvent, agent);
+                for (const handle of this.processGroupMsg) await handle(thisEvent, agent, napcat);
             } else if (thisEvent.message_type === "private") {
                 console.log("[Bot] Processing private message for " + id)
-                for (const handle of this.processPrivateMsg) await handle(thisEvent, agent);
+                for (const handle of this.processPrivateMsg) await handle(thisEvent, agent, napcat);
             }
         }
     }
@@ -143,60 +160,36 @@ class BakaBot {
     // ---------------
     // Slash Commands
     // ---------------
-    async clear(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent) {
+    async clear(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent, napcat: NCWebsocket) {
         if (event.raw_message === "/clear") {
-            agent.clearMessages()
+            agent.clear();
+            await reply("已清除历史记录", getId(event), napcat);
         }
     }
 
-    async stop(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent) {
+    async stop(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent, napcat: NCWebsocket) {
         if (event.raw_message === "/stop") {
-            agent.abort()
+            agent.stop();
+            await reply("已停止当前任务", getId(event), napcat);
         }
     }
 
     // ---------------
-    // Msg process
+    // Reply Handlers
     // ---------------
-    async replyPrivateMsg(context: PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent) {
-        const text = eventToString(context);
-        console.log("User: " + text);
-        try {
-            await agent.prompt(text);
-        } catch (e) {
-            if (!(e instanceof Error)) throw e;
-            if (!e.message.includes("Agent is already processing a prompt.")) throw e;
-            console.log("[Bot] Agent busy, sending steer");
-            agent.steer({role: "user", content: text, timestamp: new Date().getTime() });
+    async replyGroupMsg(event: GroupMessage, agent: BakaAgent, napcat: NCWebsocket) {
+        if (triggered(event, this.selfId)) {
+            agent.addMessage({ role: 'user', content: event.raw_message, timestamp: Date.now() });
+            agent.continue();
+        } else {
+            agent.GroupfollowUp(event);
         }
     }
 
-    async replyGroupMsg(context: GroupMessage, agent: BakaAgent) {
-        // console.log("Processing:"+ context.raw_message)
-        if (context.sender.user_id == context.self_id) return;
-        const text = eventToString(context);
-        console.log("[Bot] Processing:"+ text)
-        const msg: AgentMessage = {
-            role: "user",
-            content: text,
-            timestamp: new Date().getTime()
-        }
-        const at = atMe(context)
-        if (!at) {
-            await agent.addMessage(msg);
-            return 
-        }
-        
-        console.log("[Bot] Calling agent");
-        try {
-            await agent.prompt(msg);
-        } catch (e) {
-            if (!(e instanceof Error)) throw e;
-            if (!e.message.includes("Agent is already processing a prompt.")) throw e;
-            console.log("[Bot] Agent busy, sending group follow up");
-            agent.GroupfollowUp(context);
-        }
+    async replyPrivateMsg(event: PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent, napcat: NCWebsocket) {
+        agent.addMessage({ role: 'user', content: event.raw_message, timestamp: Date.now() });
+        agent.continue();
     }
 }
 
-export { BakaBot }
+export { BakaBot };
