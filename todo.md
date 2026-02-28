@@ -1,7 +1,7 @@
-- [ ] Read chat history
+- [ ] 更好的qq消息formatter，展示@对象的昵称，展示转发节点，获取图片和语音转文字等
 - [ ] Skill for installing skill
-- [ ] Good group chat trigger
-- [ ] Stream message for multi segment
-- [ ] 中间件
-- [ ] 计时器
+- [ ] Good group chat trigger 目前的llm trigger触发率太高，已停用
+- [ ] 计时器-agent工具，可以设置在多长时间后，或者某个时间后主动触发agent
+- [ ] 中间件-处理/stop /clear这些指令，并控制他们是否流向之后的消息处理流程
+- [x] Stream message for multi segment
 - [x] Chat info/context

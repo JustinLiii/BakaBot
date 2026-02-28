@@ -86,7 +86,6 @@ class BakaBot {
     private async startTyping(sessionId: string, napcat: NCWebsocket): Promise<void> {
         // 只处理私聊（sessionId不以"g"开头）
         if (sessionId.startsWith("g")) {
-            console.log("[Typing] 群聊不支持正在输入状态");
             return;
         }
         
