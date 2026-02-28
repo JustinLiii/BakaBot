@@ -61,7 +61,7 @@ class BakaBot {
             console.error(`[Stream] Error sending segment for session ${sessionId}:`, error);
         });
         
-        // 监听流式更新事件
+        // 监听事件
         agent.subscribe(async (event) => {
             // 处理流式文本增量
             if (event.type === "message_update" && 
@@ -71,26 +71,51 @@ class BakaBot {
                 streamBuffer.append(delta);
             }
             
-            // 处理消息结束（发送剩余内容）
+            // 处理"正在输入"状态
+            if (event.type === "message_start" && event.message.role === "assistant") {
+                await this.startTyping(sessionId, napcat);
+            }
+            
             if (event.type === "message_end" && event.message.role === "assistant") {
+                await this.stopTyping(sessionId, napcat);
                 await streamBuffer.flush();
-                
-                // // 原有的批量处理逻辑作为后备
-                // const content = get_text_content(event.message);
-                // if (content.length > 0) {
-                //     const msgs = content.split("\n\n").filter(m => m.trim().length > 0);
-                //     for (const msg of msgs) {
-                //         if (agent.toBeReplied) {
-                //             // @ts-ignore
-                //             await agent.toBeReplied.quick_action(msg, true);
-                //             agent.toBeReplied = null;
-                //         } else {
-                //             await reply(msg, sessionId, napcat);
-                //         }
-                //     }
-                // }
             }
         });
+    }
+
+    private async startTyping(sessionId: string, napcat: NCWebsocket): Promise<void> {
+        // 只处理私聊（sessionId不以"g"开头）
+        if (sessionId.startsWith("g")) {
+            console.log("[Typing] 群聊不支持正在输入状态");
+            return;
+        }
+        
+        try {
+            const userId = sessionId; // 私聊的sessionId就是userId
+            await napcat.set_input_status({
+                user_id: userId,
+                event_type: 1  // 1 = 正在输入
+            });
+            console.log(`[Typing] 开始显示正在输入状态 for ${userId}`);
+        } catch (error) {
+            console.error("[Typing] 设置输入状态失败:", error);
+            // 静默失败，不影响正常消息发送
+        }
+    }
+
+    private async stopTyping(sessionId: string, napcat: NCWebsocket): Promise<void> {
+        if (sessionId.startsWith("g")) return;
+        
+        try {
+            const userId = sessionId;
+            await napcat.set_input_status({
+                user_id: userId,
+                event_type: 0  // 0 = 正在说话（或停止状态）
+            });
+            console.log(`[Typing] 结束正在输入状态 for ${userId}`);
+        } catch (error) {
+            console.error("[Typing] 停止输入状态失败:", error);
+        }
     }
 
     private async constructAgent(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, napcat: NCWebsocket): Promise<BakaAgent> {
@@ -125,10 +150,8 @@ class BakaBot {
     async onMsg(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, napcat: NCWebsocket): Promise<void> {
         const msg = eventToString(event);
         const id = getId(event);
-        console.log(`[Bot] Received message in ${id}: ${msg}`);
+
         let session = this.agentDict.get(id);
-        
-        // new seesion handling
         if (!session) {
             // build agent for new session
             session = { agent: null, pending: [] };
@@ -151,10 +174,10 @@ class BakaBot {
             const thisEvent = session.pending.shift()!;
             if (thisEvent.message_type === "group") {
                 console.log("[Bot] Processing group message for " + id)
-                for (const handle of this.processGroupMsg) await handle(thisEvent, agent, napcat);
+                for (const handle of this.processGroupMsg) await handle(thisEvent, agent);
             } else if (thisEvent.message_type === "private") {
                 console.log("[Bot] Processing private message for " + id)
-                for (const handle of this.processPrivateMsg) await handle(thisEvent, agent, napcat);
+                for (const handle of this.processPrivateMsg) await handle(thisEvent, agent);
             }
         }
     }
@@ -162,17 +185,16 @@ class BakaBot {
     // ---------------
     // Slash Commands
     // ---------------
-    async clear(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent, napcat: NCWebsocket) {
+    async clear(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent) {
         if (event.raw_message === "/clear") {
-            agent.RememberAll();
-            agent.clearMessages();
+            agent.clear();
             await reply("已清除历史记录", getId(event), napcat);
         }
     }
 
-    async stop(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent, napcat: NCWebsocket) {
+    async stop(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent) {
         if (event.raw_message === "/stop") {
-            agent.abort();
+            agent.stop();
             await reply("已停止当前任务", getId(event), napcat);
         }
     }
@@ -180,44 +202,18 @@ class BakaBot {
     // ---------------
     // Reply Handlers
     // ---------------
-    async replyPrivateMsg(context: PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent) {
-        const text = eventToString(context);
-        console.log("User: " + text);
-        try {
-            await agent.prompt(text);
-        } catch (e) {
-            if (!(e instanceof Error)) throw e;
-            if (!e.message.includes("Agent is already processing a prompt.")) throw e;
-            console.log("[Bot] Agent busy, sending steer");
-            agent.steer({role: "user", content: text, timestamp: new Date().getTime() });
+    async replyGroupMsg(event: GroupMessage, agent: BakaAgent) {
+        if (triggered(event, this.selfId)) {
+            agent.addMessage({ role: 'user', content: event.raw_message, timestamp: Date.now() });
+            agent.continue();
+        } else {
+            agent.GroupfollowUp(event);
         }
     }
 
-    async replyGroupMsg(context: GroupMessage, agent: BakaAgent) {
-        // console.log("Processing:"+ context.raw_message)
-        if (context.sender.user_id == context.self_id) return;
-        const text = eventToString(context);
-        console.log("[Bot] Processing:"+ text)
-        const msg: AgentMessage = {
-            role: "user",
-            content: text,
-            timestamp: new Date().getTime()
-        }
-        const at = atMe(context)
-        if (!at) {
-            await agent.addMessage(msg);
-            return 
-        }
-        
-        console.log("[Bot] Calling agent");
-        try {
-            await agent.prompt(msg);
-        } catch (e) {
-            if (!(e instanceof Error)) throw e;
-            if (!e.message.includes("Agent is already processing a prompt.")) throw e;
-            console.log("[Bot] Agent busy, sending group follow up");
-            agent.GroupfollowUp(context);
-        }
+    async replyPrivateMsg(event: PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent) {
+        agent.addMessage({ role: 'user', content: event.raw_message, timestamp: Date.now() });
+        agent.continue();
     }
 }
 
