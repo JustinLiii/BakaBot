@@ -23,6 +23,11 @@ class BakaBot {
 
     groupContextLimit = 20;
 
+    // 状态缓存
+    private typingStates = new Map<string, boolean>();
+    // 超时机制
+    private typingTimeouts = new Map<string, NodeJS.Timeout>();
+
     constructor(selfId?: string) { 
         this.selfId = selfId;
         this.processGroupMsg = [
@@ -73,11 +78,11 @@ class BakaBot {
             
             // 处理"正在输入"状态
             if (event.type === "message_start" && event.message.role === "assistant") {
-                await this.startTyping(sessionId, napcat);
+                await this.startTypingWithTimeout(sessionId, napcat);
             }
             
             if (event.type === "message_end" && event.message.role === "assistant") {
-                await this.stopTyping(sessionId, napcat);
+                await this.stopTypingWithCleanup(sessionId, napcat);
                 await streamBuffer.flush();
             }
         });
@@ -97,6 +102,7 @@ class BakaBot {
                 event_type: 1  // 1 = 正在输入
             });
             console.log(`[Typing] 开始显示正在输入状态 for ${userId}`);
+            this.typingStates.set(sessionId, true);
         } catch (error) {
             console.error("[Typing] 设置输入状态失败:", error);
             // 静默失败，不影响正常消息发送
@@ -113,9 +119,47 @@ class BakaBot {
                 event_type: 0  // 0 = 正在说话（或停止状态）
             });
             console.log(`[Typing] 结束正在输入状态 for ${userId}`);
+            this.typingStates.set(sessionId, false);
         } catch (error) {
             console.error("[Typing] 停止输入状态失败:", error);
         }
+    }
+
+    private async startTypingWithTimeout(sessionId: string, napcat: NCWebsocket): Promise<void> {
+        // 检查状态缓存，避免重复调用
+        if (this.typingStates.get(sessionId) === true) {
+            console.log(`[Typing] 状态已为true，跳过重复调用 for ${sessionId}`);
+            return;
+        }
+        
+        // 清除现有超时
+        if (this.typingTimeouts.has(sessionId)) {
+            clearTimeout(this.typingTimeouts.get(sessionId));
+            this.typingTimeouts.delete(sessionId);
+        }
+        
+        // 设置新超时（30秒后自动停止）
+        const timeout = setTimeout(() => {
+            console.log(`[Typing] 超时自动停止 for ${sessionId}`);
+            this.stopTyping(sessionId, napcat);
+            this.typingTimeouts.delete(sessionId);
+        }, 30000);
+        
+        this.typingTimeouts.set(sessionId, timeout);
+        
+        // 调用API
+        await this.startTyping(sessionId, napcat);
+    }
+
+    private async stopTypingWithCleanup(sessionId: string, napcat: NCWebsocket): Promise<void> {
+        // 清除超时
+        if (this.typingTimeouts.has(sessionId)) {
+            clearTimeout(this.typingTimeouts.get(sessionId));
+            this.typingTimeouts.delete(sessionId);
+        }
+        
+        // 停止输入状态
+        await this.stopTyping(sessionId, napcat);
     }
 
     private async constructAgent(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, napcat: NCWebsocket): Promise<BakaAgent> {
