@@ -151,10 +151,10 @@ class BakaBot {
             const thisEvent = session.pending.shift()!;
             if (thisEvent.message_type === "group") {
                 console.log("[Bot] Processing group message for " + id)
-                for (const handle of this.processGroupMsg) await handle(thisEvent, agent, napcat);
+                for (const handle of this.processGroupMsg) await handle(thisEvent, agent);
             } else if (thisEvent.message_type === "private") {
                 console.log("[Bot] Processing private message for " + id)
-                for (const handle of this.processPrivateMsg) await handle(thisEvent, agent, napcat);
+                for (const handle of this.processPrivateMsg) await handle(thisEvent, agent);
             }
         }
     }
@@ -162,18 +162,16 @@ class BakaBot {
     // ---------------
     // Slash Commands
     // ---------------
-    async clear(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent, napcat: NCWebsocket) {
+    async clear(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent) {
         if (event.raw_message === "/clear") {
             agent.RememberAll();
             agent.clearMessages();
-            await reply("已清除历史记录", getId(event), napcat);
         }
     }
 
-    async stop(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent, napcat: NCWebsocket) {
+    async stop(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent) {
         if (event.raw_message === "/stop") {
             agent.abort();
-            await reply("已停止当前任务", getId(event), napcat);
         }
     }
 
