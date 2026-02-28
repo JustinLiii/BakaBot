@@ -78,13 +78,13 @@ This repository contains **BakaBot**, a TypeScript-based bot powered by the `pi-
 
 ### Triggering Logic
 - **At-Me**: Always check `atMe(context)` for group messages.
-- **Trigger Utility**: Use `triggered(text, agent)` in `src/utils/agent_utils.ts` to determine if the bot should interject in a conversation even without an explicit @ mention.
+- **Trigger Utility**: Use `triggered(text, agent)` in `src/utils/agent_utils.ts` to determine if the bot should interject in a conversation even without an explicit @ mention. (Currently disabled)
 
 ---
 
 ## 📂 Project Structure Overview
 - `src/bakabot.ts`: Main bot logic and message routing.
-- `src/agent.ts`: Wrapper for the PI Agent, includes model configuration.
+- `src/agent.ts`: Wrapper for the PI Agent, includes model configuration, this should not include outward logic (QQ, WebUI, etc.).
 - `src/tools.ts`: Definitions for tools (read_file, list_dir, web_fetch, etc.).
 - `src/utils/`: Helper functions for path processing, triggering, and message formatting.
 - `src/prompts/`: System prompts and message templates.

@@ -231,18 +231,16 @@ class BakaBot {
     // ---------------
     // Slash Commands
     // ---------------
-    async clear(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent, napcat: NCWebsocket) {
+    async clear(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent) {
         if (event.raw_message === "/clear") {
             agent.RememberAll();
             agent.clearMessages();
-            await reply("已清除历史记录", getId(event), napcat);
         }
     }
 
-    async stop(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent, napcat: NCWebsocket) {
+    async stop(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent) {
         if (event.raw_message === "/stop") {
             agent.abort();
-            await reply("已停止当前任务", getId(event), napcat);
         }
     }
 
