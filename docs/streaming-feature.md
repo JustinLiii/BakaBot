@@ -85,39 +85,11 @@ private async safeSend(segment: string): Promise<void> {
 }
 ```
 
-## 向后兼容性
-
-### 后备机制
-如果流式事件不触发或出现问题，系统会自动回退到原有的批量处理逻辑：
-
-```typescript
-// 原有的批量处理逻辑作为后备
-if (event.type === "message_end" && event.message.role === "assistant") {
-    const content = get_text_content(event.message);
-    if (content.length > 0) {
-        const msgs = content.split("\n\n").filter(m => m.trim().length > 0);
-        for (const msg of msgs) {
-            // 发送消息...
-        }
-    }
-}
-```
-
 ## 测试策略
 
 ### 单元测试
 - `tests/stream_buffer.test.ts`：测试 StreamBuffer 类的各种场景
 - 包括正常流程、边缘情况、错误处理
-
-### 集成测试
-- `tests/streaming_integration.test.ts`：模拟真实的消息流
-- 测试多个段落、混合换行模式等
-
-## 性能考虑
-
-1. **内存使用**：StreamBuffer 只保留当前未发送的文本，内存占用小
-2. **网络延迟**：分段发送可以减少用户等待时间
-3. **错误恢复**：单个分段发送失败不影响其他分段
 
 ## 已知限制
 
@@ -130,11 +102,9 @@ if (event.type === "message_end" && event.message.role === "assistant") {
 1. **智能分段**：基于语义而非仅 `\n\n`
 2. **速率限制**：控制消息发送频率
 3. **进度指示**：显示"正在输入..."状态
-4. **撤回功能**：支持撤回最后一条消息
 
 ## 相关文件
 
 - `src/utils/stream_buffer.ts`：核心缓冲区实现
 - `src/bakabot.ts`：消息处理器集成
 - `tests/stream_buffer.test.ts`：单元测试
-- `tests/streaming_integration.test.ts`：集成测试
