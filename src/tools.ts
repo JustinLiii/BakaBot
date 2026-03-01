@@ -37,7 +37,7 @@ const createBashTool = (sessionId: string): AgentTool => ({
         "-v", `${sessionPath}:/workspace`,
         "-w", "/workspace",
         "juztinlii/bakabot-sandbox",
-        "bash", "-c", params.command
+        "bash", "-c", "source /root/.bashrc && " + params.command
       ];
 
       const proc = spawn("docker", dockerArgs);
