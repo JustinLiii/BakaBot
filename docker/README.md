@@ -1,0 +1,1 @@
+gcloud builds submit --config cloudbuild.yaml --substitutions=_VERSION="0.0.3" .

@@ -34,7 +34,7 @@ ENV LANG=zh_CN.UTF-8 \
 
 # 安装bun
 RUN curl -fsSL https://bun.sh/install | bash
-
+ENV PATH="/root/.bun/bin/:$PATH"
 
 # 安装uv
 # Download the latest installer
@@ -47,7 +47,7 @@ RUN sh /uv-installer.sh && rm /uv-installer.sh
 ENV PATH="/root/.local/bin/:$PATH"
 
 # 设置工作目录
-WORKDIR /workspace
+WORKDIR /root
 
 # 默认命令
 CMD ["/bin/bash"]

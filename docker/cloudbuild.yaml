@@ -1,0 +1,38 @@
+steps:
+  # 1. 跨平台builder
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        docker run --privileged --rm tonistiigi/binfmt --install all
+        docker buildx create --name multibuilder --use
+        docker buildx inspect --bootstrap
+  
+  # 2. 登录 Docker Hub
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    secretEnv: ['Docker_Hub']
+    args:
+      - '-c'
+      - 'echo "$$Docker_Hub" | docker login --username=juztinlii --password-stdin'
+
+  # 3. 多平台构建并推送
+  - name: 'gcr.io/cloud-builders/docker'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        docker buildx build \
+          --platform linux/amd64,linux/arm64 \
+          -t docker.io/juztinlii/bakabot-sandbox:$_VERSION \
+          -t docker.io/juztinlii/bakabot-sandbox:latest \
+          --push .
+
+availableSecrets:
+  secretManager:
+    - versionName: projects/$PROJECT_ID/secrets/Docker_Hub/versions/latest
+      env: 'Docker_Hub'
+
+substitutions:
+  _VERSION: '0.0.1'
