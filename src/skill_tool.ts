@@ -72,7 +72,7 @@ async function listSkills(sessionId: string): Promise<string> {
     const skillPath = path.join(skill_dir, dir.name, 'SKILL.md');
     try {
       const skill_info = await readSkillMetadata(skillPath);
-      result += `• **${skill_info.name}**: ${skill_info.description}\n  dir: ${path.join("workspace", "skills", dir.name)}\n`;
+      result += `• **${skill_info.name}**: ${skill_info.description}\n  dir: ${path.join("root", "skills", dir.name)}\n`;
     } catch (error) {
       console.log(error);
     }
