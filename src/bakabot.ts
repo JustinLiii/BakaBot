@@ -223,6 +223,7 @@ class BakaBot {
                 const extra_messages = groupMsgBuffer.splice(0, groupMsgBuffer.length - this.recentGroupMsgSize);
                 agent.rememberMessages(extra_messages)
             }
+            return;
         }
 
         // 当不回复时，直接把msg塞进RAG，回复时，msg和当前回复消息一起组成一个消息，回复并塞进rag
