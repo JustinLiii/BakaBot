@@ -3,5 +3,8 @@
 - [ ] Good group chat trigger 目前的llm trigger触发率太高，已停用
 - [ ] 计时器-agent工具，可以设置在多长时间后，或者某个时间后主动触发agent
 - [ ] 中间件-处理/stop /clear这些指令，并控制他们是否流向之后的消息处理流程
+- [ ] 自己写agent loop，抛弃pi-agent，实现以下功能：
+  - [ ] 基于每轮一个工具的agent-loop (当前设计按照每轮多个工具设计，现实只有一个，导致steer（当前工具调用完成后加入消息）和followUp（本轮所有工具调用后完成）无区别)
+  - [ ] 实现长时异步工具（立即返回一个句柄/标记，继续agent loop，当工具真正完成后将结果followUp）
 - [x] Stream message for multi segment
 - [x] Chat info/context
