@@ -11,8 +11,8 @@ import { RagService } from "./utils/rag_service.ts";
 import { get_text_content } from "./utils/agent_utils.ts";
 
 class BakaAgent extends Agent {
-  pendingGroupFollowUp: GroupMessage[] = [];
-  toBeReplied: GroupMessage | null = null;
+  pendingGroupFollowUp: {msg: string, reply_action: (reply: string, at_sender?: boolean) => Promise<null>}[] = [];
+  toBeReplied: ((reply: string, at_sender?: boolean) => Promise<null>) | null = null;
   rag: RagService;
   contextPruneTriggerSize = 50; // Actural working context size could be larger as pruning could only be triggered at agent_end
 
@@ -104,9 +104,9 @@ class BakaAgent extends Agent {
     if (this.pendingGroupFollowUp.length <= 0) return;
     // Process pending follow ups
     const followUp = this.pendingGroupFollowUp.shift()!;
-    const msg = followUp.raw_message;
+    const msg = followUp.msg;
     console.log("Processing follow up: " + msg);
-    this.toBeReplied = followUp;
+    this.toBeReplied = followUp.reply_action;
     // Add without immediate indexing, it will be indexed in the next agent_end
     this.appendMessage({ role: 'user', content: msg, timestamp: Date.now() });
     this.continue();
@@ -137,7 +137,7 @@ class BakaAgent extends Agent {
   /**
    * Indexes all messages in history that haven't been indexed yet.
    */
-  private async rememberMessages(messages: AgentMessage[], includeToolResult: boolean = false) {
+  public async rememberMessages(messages: AgentMessage[], includeToolResult: boolean = false) {
     if (!this.rag.initialized) await this.rag.Initialize();
     const msg_to_memorize = includeToolResult ? messages : messages.filter(m => m.role !== "toolResult");
     const promises = [];
@@ -164,8 +164,11 @@ class BakaAgent extends Agent {
     this.ContextPruningAndIndexing({ type: "agent_end", messages: [] });
   }
 
-  GroupfollowUp(content: GroupMessage) {
-    this.pendingGroupFollowUp.push(content);
+  GroupfollowUp(msg: string, reply_action: (reply: string, at_sender?: boolean) => Promise<null>) {
+    this.pendingGroupFollowUp.push({
+      msg: msg,
+      reply_action: reply_action
+    });
   }
 
   async RememberAll(includeToolResult: boolean = false) {

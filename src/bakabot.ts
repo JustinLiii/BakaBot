@@ -2,26 +2,30 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { GroupMessage, PrivateFriendMessage, PrivateGroupMessage, NCWebsocket } from "node-napcat-ts";
 
 import { buildAgent, type BakaAgent } from "./agent";
-import { formatGroupInfo, formatGroupMemberList, groupPrompt, privatePrompt, eventToString } from "./prompts/napcat_templates";
-import { triggered, get_text_content } from "./utils/agent_utils";
+import { formatGroupInfo, formatGroupMemberList, groupPrompt, privatePrompt, eventToString, groupMessageWithHistory } from "./prompts/napcat_templates";
 import { atMe, getId, reply } from "./utils/napcat_utils";
 import { system_prompt } from "./prompts/sys";
-import { Structs } from "node-napcat-ts";
 import { StreamBuffer } from "./utils/stream_buffer";
 
-type PrivateMsgHandler = (event: PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent) => Promise<void>;
-type GroupMsgHandler = (event: GroupMessage, agent: BakaAgent) => Promise<void>;
+type PrivateMsgHandler = (event: PrivateFriendMessage | PrivateGroupMessage, session: Session) => Promise<void>;
+type GroupMsgHandler = (event: GroupMessage, session: Session) => Promise<void>;
+
+type Session = {
+    agent: BakaAgent | null,
+    groupMsgBuffer: AgentMessage[],
+    pending: (GroupMessage | PrivateFriendMessage | PrivateGroupMessage)[]
+}
 
 class BakaBot {
 
-    agentDict: Map<string, {agent: BakaAgent | null, pending: (GroupMessage | PrivateFriendMessage | PrivateGroupMessage)[]}> = new Map();
+    agentDict: Map<string, Session> = new Map();
 
     processPrivateMsg: PrivateMsgHandler[] = [];
     processGroupMsg: GroupMsgHandler[] = [];
 
     selfId?: string;
 
-    groupContextLimit = 20;
+    recentGroupMsgSize = 10;
 
     constructor(selfId?: string) { 
         this.selfId = selfId;
@@ -51,8 +55,7 @@ class BakaBot {
         // 为每个会话创建流式缓冲区
         const streamBuffer = new StreamBuffer(async (segment: string) => {
             if (agent.toBeReplied) {
-                // @ts-ignore
-                await agent.toBeReplied.quick_action(segment, true);
+                await agent.toBeReplied(segment, true);
                 agent.toBeReplied = null;
             } else {
                 await reply(segment, sessionId, napcat);
@@ -140,7 +143,7 @@ class BakaBot {
         let session = this.agentDict.get(id);
         if (!session) {
             // build agent for new session
-            session = { agent: null, pending: [] };
+            session = { agent: null, groupMsgBuffer: [], pending: [] };
             this.agentDict.set(id, session);
             session.agent = await this.constructAgent(event, napcat);
             this.registerMsgHandler(napcat, session.agent, id);
@@ -154,16 +157,14 @@ class BakaBot {
 
         session.pending.push(event);
 
-        const agent = session.agent!;
-
         while (session.pending.length > 0) {
             const thisEvent = session.pending.shift()!;
             if (thisEvent.message_type === "group") {
                 console.log("[Bot] Processing group message for " + id)
-                for (const handle of this.processGroupMsg) await handle(thisEvent, agent);
+                for (const handle of this.processGroupMsg) await handle(thisEvent, session);
             } else if (thisEvent.message_type === "private") {
                 console.log("[Bot] Processing private message for " + id)
-                for (const handle of this.processPrivateMsg) await handle(thisEvent, agent);
+                for (const handle of this.processPrivateMsg) await handle(thisEvent, session);
             }
         }
     }
@@ -171,14 +172,16 @@ class BakaBot {
     // ---------------
     // Slash Commands
     // ---------------
-    async clear(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent) {
+    async clear(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, session: Session) {
+        const agent = session.agent!;
         if (event.raw_message === "/clear") {
             agent.RememberAll();
             agent.clearMessages();
         }
     }
 
-    async stop(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent) {
+    async stop(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, session: Session) {
+        const agent = session.agent!;
         if (event.raw_message === "/stop") {
             agent.abort();
         }
@@ -187,7 +190,8 @@ class BakaBot {
     // ---------------
     // Reply Handlers
     // ---------------
-    async replyPrivateMsg(context: PrivateFriendMessage | PrivateGroupMessage, agent: BakaAgent) {
+    async replyPrivateMsg(context: PrivateFriendMessage | PrivateGroupMessage, session: Session) {
+        const agent = session.agent!;
         const text = eventToString(context);
         console.log("User: " + text);
         try {
@@ -200,30 +204,45 @@ class BakaBot {
         }
     }
 
-    async replyGroupMsg(context: GroupMessage, agent: BakaAgent) {
+    async replyGroupMsg(context: GroupMessage, session: Session) {
+        const agent = session.agent!;
+        const groupMsgBuffer = session.groupMsgBuffer;
         // console.log("Processing:"+ context.raw_message)
         if (context.sender.user_id == context.self_id) return;
         const text = eventToString(context);
-        console.log("[Bot] Processing:"+ text)
-        const msg: AgentMessage = {
+        console.log("[Bot] Processing:" + text)
+        const msg = {
             role: "user",
             content: text,
             timestamp: new Date().getTime()
         }
         const at = atMe(context)
         if (!at) {
-            await agent.addMessage(msg);
-            return 
+            groupMsgBuffer.push(msg as AgentMessage);
+            if (groupMsgBuffer.length >= this.recentGroupMsgSize) {
+                const extra_messages = groupMsgBuffer.splice(0, groupMsgBuffer.length - this.recentGroupMsgSize);
+                agent.rememberMessages(extra_messages)
+            }
         }
+
+        // 当不回复时，直接把msg塞进RAG，回复时，msg和当前回复消息一起组成一个消息，回复并塞进rag
+        // 所以这里的回复时逻辑不需要rememeber
+        const formattedMsg = groupMessageWithHistory(msg.content, groupMsgBuffer.map((m)=>m.content as string))
+        session.groupMsgBuffer = [];
         
         console.log("[Bot] Calling agent");
         try {
-            await agent.prompt(msg);
+            await agent.prompt({
+            role: "user",
+            content: formattedMsg,
+            timestamp: msg.timestamp
+        });
         } catch (e) {
             if (!(e instanceof Error)) throw e;
             if (!e.message.includes("Agent is already processing a prompt.")) throw e;
             console.log("[Bot] Agent busy, sending group follow up");
-            agent.GroupfollowUp(context);
+            // @ts-ignore quick_action have an errorous type definition
+            agent.GroupfollowUp(formattedMsg, context.quick_action.bind(context));
         }
     }
 }
