@@ -289,20 +289,197 @@ const listDirTool: AgentTool = {
   }
 }
 
+function pickCrawlTextFromResult(result: Record<string, unknown>): string | null {
+  for (const key of ["markdown", "fit_markdown", "cleaned_html", "html", "text", "content"]) {
+    const value = result[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value;
+    }
+  }
+  return null;
+}
+
 const webFetchTool: AgentTool = {
   name: "web_fetch",
-  label: "Web Fetch", 
-  description: "Fetch a web resource",
+  label: "Web Crawl",
+  description: "Fetch a web page via Crawl4AI Docker API and return extracted markdown/content",
   parameters: Type.Object({
-    url: Type.String({ description: "URL to fetch" }),
+    url: Type.String({ description: "URL to crawl" }),
   }),
   execute: async (toolCallId, params: any, signal, onUpdate) => {
-    console.log(`Fetching URL: ${params.url}`);
-    const url = "https://r.jina.ai/" + params.url
-    const response = await fetch(url);
+    const baseUrl = process.env.CRAWL4AI_BASE_URL;
+    if (!baseUrl) {
+      return {
+        content: [{
+          type: "text",
+          text: "Missing required environment variable: CRAWL4AI_BASE_URL. Notify your user.",
+        }],
+        details: {
+          url: params.url,
+          error: "missing_env_var",
+        },
+      };
+    }
+    const endpoint = new URL("/crawl", baseUrl).toString();
+    console.log(`Crawling URL via Crawl4AI: ${params.url}`);
+
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          urls: [params.url],
+        }),
+        signal,
+      });
+    } catch (error: any) {
+      return {
+        content: [{
+          type: "text",
+          text: `Failed to reach Crawl4AI at ${endpoint}: ${error.message}. Notify your user.`,
+        }],
+        details: {
+          endpoint,
+          url: params.url,
+          error: error.message,
+        },
+      };
+    }
+
+    const rawText = await response.text();
+    if (!response.ok) {
+      return {
+        content: [{
+          type: "text",
+          text: `Crawl4AI request failed with status ${response.status}: ${rawText.slice(0, 1000)}. Notify your user.`,
+        }],
+        details: {
+          endpoint,
+          url: params.url,
+          status: response.status,
+          body: rawText.slice(0, 2000),
+        },
+      };
+    }
+
+    let payload: unknown;
+    try {
+      payload = JSON.parse(rawText);
+    } catch {
+      return {
+        content: [{
+          type: "text",
+          text: `Crawl4AI returned non-JSON response from /crawl:\n${rawText.slice(0, 4000)}. Notify your user.`,
+        }],
+        details: {
+          endpoint,
+          url: params.url,
+          status: response.status,
+        },
+      };
+    }
+
+    if (!payload || typeof payload !== "object") {
+      return {
+        content: [{
+          type: "text",
+          text: "Crawl4AI /crawl response is not a JSON object. Notify your user.",
+        }],
+        details: {
+          endpoint,
+          url: params.url,
+          status: response.status,
+        },
+      };
+    }
+
+    const root = payload as Record<string, unknown>;
+    const success = root.success;
+    const results = root.results;
+
+    if (typeof success !== "boolean") {
+      return {
+        content: [{
+          type: "text",
+          text: `Crawl4AI /crawl response missing boolean "success". Raw response:\n${rawText.slice(0, 4000)}. Notify your user.`,
+        }],
+        details: {
+          endpoint,
+          url: params.url,
+          status: response.status,
+        },
+      };
+    }
+
+    if (!Array.isArray(results)) {
+      return {
+        content: [{
+          type: "text",
+          text: `Crawl4AI /crawl response missing array "results". Raw response:\n${rawText.slice(0, 4000)}. Notify your user.`,
+        }],
+        details: {
+          endpoint,
+          url: params.url,
+          status: response.status,
+          success,
+        },
+      };
+    }
+
+    if (!success) {
+      return {
+        content: [{
+          type: "text",
+          text: `Crawl4AI reported success=false. Raw response:\n${rawText.slice(0, 4000)}`,
+        }],
+        details: {
+          endpoint,
+          url: params.url,
+          status: response.status,
+          success,
+        },
+      };
+    }
+
+    if (results.length === 0 || typeof results[0] !== "object" || results[0] === null) {
+      return {
+        content: [{
+          type: "text",
+          text: `Crawl4AI /crawl response has empty or invalid "results". Raw response:\n${rawText.slice(0, 4000)}`,
+        }],
+        details: {
+          endpoint,
+          url: params.url,
+          status: response.status,
+        },
+      };
+    }
+
+    const firstResult = results[0] as Record<string, unknown>;
+    const content = pickCrawlTextFromResult(firstResult);
+    if (!content) {
+      return {
+        content: [{
+          type: "text", text: `Crawl4AI /crawl returned result without recognized content fields. Raw response:\n${rawText.slice(0, 4000)}`,
+        }],
+        details: {
+          endpoint,
+          url: params.url,
+          status: response.status,
+        },
+      };
+    }
+
     return {
-      content: [{ type: "text", text: await response.text() }],
-      details: { url: params.url, status: response.status },
+      content: [{ type: "text", text: content }],
+      details: {
+        endpoint,
+        url: params.url,
+        status: response.status,
+      },
     };
   }
 }
