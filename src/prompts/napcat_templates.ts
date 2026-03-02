@@ -127,5 +127,17 @@ ID: ${userInfo.user_id}
 `
 }
 
+function groupMessageWithHistory(
+    msg: string,
+    history: string[]
+): string {
+    return `近期群聊记录：
+${history.join("\n")}
 
-export { formatGroupInfo, formatGroupMemberList, segmentToString, eventToString, groupPrompt, privatePrompt };
+User:
+${msg}
+`
+}
+
+
+export { formatGroupInfo, formatGroupMemberList, segmentToString, eventToString, groupPrompt, privatePrompt, groupMessageWithHistory };
