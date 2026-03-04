@@ -1,0 +1,21 @@
+{
+  "servers": [
+    {
+      "endpoint": "https://your-mcp-server.example.com/mcp",
+      "options": {
+        "headers": {
+          "Authorization": "Bearer your-token"
+        },
+        "initialize": {
+          "protocolVersion": "2025-03-26",
+          "capabilities": {},
+          "clientInfo": {
+            "name": "bakabot",
+            "version": "1.0.0"
+          }
+        },
+        "sendInitializedNotification": true
+      }
+    }
+  ]
+}
