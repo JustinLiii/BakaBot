@@ -16,6 +16,53 @@ bun run index.ts
 
 This project was created using `bun init` in bun v1.3.8. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
 
+## 🔌 MCP 配置
+
+BakaBot 会在创建会话 Agent 时，自动读取该会话目录下的 `mcp.json` 并注册 MCP tools：
+
+`data/sessions/<sessionId>/mcp.json`
+
+`mcp.json` 使用严格解析：格式错误会直接抛错（不会自动过滤或忽略非法字段）。
+
+### 配置示例
+
+```json
+{
+  "servers": [
+    {
+      "endpoint": "https://your-mcp-server.example.com/mcp",
+      "options": {
+        "headers": {
+          "Authorization": "Bearer your-token"
+        },
+        "initialize": {
+          "protocolVersion": "2025-03-26",
+          "capabilities": {},
+          "clientInfo": {
+            "name": "bakabot",
+            "version": "1.0.0"
+          }
+        },
+        "sendInitializedNotification": true
+      }
+    }
+  ]
+}
+```
+
+### 字段说明
+
+- `servers`: MCP 服务器列表。
+- `servers[].endpoint`: MCP HTTP endpoint。
+- `servers[].options.headers`: 请求头，可用于鉴权（例如 `Authorization`）。
+- `servers[].options.initialize`: MCP initialize 参数覆盖（可选）。
+- `servers[].options.sendInitializedNotification`: 是否发送 `notifications/initialized`（默认 `true`）。
+
+### 行为说明
+
+- 若 `mcp.json` 不存在：跳过 MCP 注册，不影响 Agent 启动。
+- 若存在但格式非法：启动时报错，提示配置路径与错误信息。
+
 ## 🚀 流式消息发送功能
 
 BakaBot现在支持流式消息发送！当AI生成消息时，会实时分段发送，提供更好的用户体验。

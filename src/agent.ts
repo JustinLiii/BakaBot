@@ -1,14 +1,75 @@
 import { Agent } from "@mariozechner/pi-agent-core";
-import type { AgentOptions, AgentState, AgentMessage, AgentEvent } from "@mariozechner/pi-agent-core";
+import type { AgentOptions, AgentState, AgentMessage, AgentEvent, AgentTool } from "@mariozechner/pi-agent-core";
 import type { Model, ImageContent, TextContent } from "@mariozechner/pi-ai";
 import console from "console";
+import * as fs from "fs/promises";
+import * as path from "path";
 import type { GroupMessage } from "node-napcat-ts";
 
 import { webFetchTool, continueTool, createBashTool } from "./tools.ts";
 import { creatSkillTool } from "./skill_tool.ts";
+import { createMcpToolsFromEndpoints } from "./mcp_tool.ts";
+import type { McpClientOptions } from "./mcp_tool.ts";
 import { system_prompt } from "./prompts/sys.ts";
 import { RagService } from "./utils/rag_service.ts";
 import { get_text_content } from "./utils/agent_utils.ts";
+
+interface SessionMcpConfig {
+  servers: Array<{ endpoint: string; options?: McpClientOptions }>;
+}
+
+function getSessionMcpConfigPath(sessionId: string): string {
+  return path.resolve(process.cwd(), "data", "sessions", sessionId, "mcp.json");
+}
+
+function normalizeSessionMcpConfig(raw: unknown): SessionMcpConfig {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error("mcp.json must be an object.");
+  }
+  const obj = raw as Record<string, unknown>;
+  if (!Array.isArray(obj.servers)) {
+    throw new Error("mcp.json must contain a 'servers' array.");
+  }
+
+  const servers = obj.servers.map((item, idx) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      throw new Error(`mcp.json servers[${idx}] must be an object.`);
+    }
+    const serverObj = item as Record<string, unknown>;
+    if (typeof serverObj.endpoint !== "string") {
+      throw new Error(`mcp.json servers[${idx}].endpoint must be a string.`);
+    }
+    const endpoint = serverObj.endpoint.trim();
+    if (!endpoint) {
+      throw new Error(`mcp.json servers[${idx}].endpoint cannot be empty.`);
+    }
+
+    if (serverObj.options !== undefined && (!serverObj.options || typeof serverObj.options !== "object" || Array.isArray(serverObj.options))) {
+      throw new Error(`mcp.json servers[${idx}].options must be an object when provided.`);
+    }
+
+    return {
+      endpoint,
+      options: serverObj.options as McpClientOptions | undefined,
+    };
+  });
+
+  return { servers };
+}
+
+async function loadSessionMcpConfig(sessionId: string): Promise<SessionMcpConfig> {
+  const configPath = getSessionMcpConfigPath(sessionId);
+  try {
+    const content = await fs.readFile(configPath, "utf-8");
+    const parsed = JSON.parse(content);
+    return normalizeSessionMcpConfig(parsed);
+  } catch (error: any) {
+    if (error?.code === "ENOENT") {
+      return { servers: [] };
+    }
+    throw new Error(`[MCP] Invalid config at ${configPath}: ${error?.message ?? String(error)}`);
+  }
+}
 
 class BakaAgent extends Agent {
   pendingGroupFollowUp: {msg: string, reply_action: (reply: string, at_sender?: boolean) => Promise<null>}[] = [];
@@ -179,6 +240,20 @@ class BakaAgent extends Agent {
       await this.state.messages.map(m =>this.rag.add(m))
     }
   }
+
+  async registerMcpTools(endpoints: string[], options?: McpClientOptions): Promise<{ registered: string[]; skipped: string[] }> {
+    const tools = await createMcpToolsFromEndpoints(endpoints, options);
+    const existingNames = new Set(this.state.tools.map((tool) => tool.name));
+    const registerable = tools.filter((tool) => !existingNames.has(tool.name));
+    const skipped = tools.filter((tool) => existingNames.has(tool.name)).map((tool) => tool.name);
+    if (registerable.length > 0) {
+      this.setTools([...this.state.tools, ...registerable]);
+    }
+    return {
+      registered: registerable.map((tool) => tool.name),
+      skipped,
+    };
+  }
 }
 
 async function buildAgent(sessionId: string, initialState?: Partial<AgentState>): Promise<BakaAgent> {
@@ -225,6 +300,22 @@ async function buildAgent(sessionId: string, initialState?: Partial<AgentState>)
     });
 
   agent.setTools([webFetchTool, continueTool, createBashTool(sessionId), creatSkillTool(sessionId)]);
+  // load custom mcp tools from <sessionFolder>/mcp.json
+  const mcpConfig = await loadSessionMcpConfig(sessionId);
+  if (mcpConfig.servers.length > 0) {
+    let registeredTotal = 0;
+    let skippedTotal = 0;
+    for (const server of mcpConfig.servers) {
+      try {
+        const { registered, skipped } = await agent.registerMcpTools([server.endpoint], server.options);
+        registeredTotal += registered.length;
+        skippedTotal += skipped.length;
+      } catch (error) {
+        console.warn(`[MCP] Session ${sessionId}: failed to register ${server.endpoint}`, error);
+      }
+    }
+    console.log(`[MCP] Session ${sessionId}: registered ${registeredTotal}, skipped ${skippedTotal}`);
+  }
 
   return agent
 }
