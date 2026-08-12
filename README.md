@@ -4,6 +4,7 @@ To install dependencies:
 
 ```bash
 bun install
+agent-browser install
 ```
 
 To run:

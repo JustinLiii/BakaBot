@@ -6,6 +6,7 @@
     "@mariozechner/pi-agent-core": "^0.51.2",
     "@modelcontextprotocol/client": "^2.0.0",
     "@types/js-yaml": "^4.0.9",
+    "agent-browser": "^0.34.0",
     "apache-arrow": "^21.1.0",
     "js-yaml": "^4.1.1",
     "lancedb": "^0.0.1",
