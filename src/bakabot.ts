@@ -1,4 +1,5 @@
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import { Structs } from "node-napcat-ts";
 import type { GroupMessage, PrivateFriendMessage, PrivateGroupMessage, NCWebsocket } from "node-napcat-ts";
 
 import { buildAgent, type BakaAgent } from "./agent";
@@ -6,6 +7,7 @@ import { formatGroupInfo, formatGroupMemberList, groupPrompt, privatePrompt, eve
 import { atMe, getId, reply } from "./utils/napcat_utils";
 import { system_prompt } from "./prompts/sys";
 import { StreamBuffer } from "./utils/stream_buffer";
+import { handleMcpSlashCommand } from "./mcp/slash_command.ts";
 
 type PrivateMsgHandler = (event: PrivateFriendMessage | PrivateGroupMessage, session: Session) => Promise<void>;
 type GroupMsgHandler = (event: GroupMessage, session: Session) => Promise<void>;
@@ -32,12 +34,14 @@ class BakaBot {
         this.processGroupMsg = [
             this.clear.bind(this),
             this.stop.bind(this),
+            this.mcp.bind(this),
             this.replyGroupMsg.bind(this)
         ]
 
         this.processPrivateMsg = [
             this.clear.bind(this),
             this.stop.bind(this),
+            this.mcp.bind(this),
             this.replyPrivateMsg.bind(this)
         ]
         process.on('SIGINT', async  () => {
@@ -184,6 +188,20 @@ class BakaBot {
         const agent = session.agent!;
         if (event.raw_message === "/stop") {
             agent.abort();
+        }
+    }
+
+    async mcp(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, session: Session): Promise<void> {
+        const manager = session.agent!.mcpManager;
+        if (!manager) return;
+        const result = await handleMcpSlashCommand(event.raw_message, manager);
+        if (result !== null) {
+            if (event.message_type === "group") {
+                // @ts-expect-error node-napcat-ts mis-types the string reply as message segments.
+                await event.quick_action(result, true);
+            } else {
+                await event.quick_action([Structs.text(result)]);
+            }
         }
     }
 

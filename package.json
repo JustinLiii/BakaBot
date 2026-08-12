@@ -4,6 +4,7 @@
   "dependencies": {
     "@lancedb/lancedb": "^0.26.2",
     "@mariozechner/pi-agent-core": "^0.51.2",
+    "@modelcontextprotocol/client": "^2.0.0",
     "@types/js-yaml": "^4.0.9",
     "apache-arrow": "^21.1.0",
     "js-yaml": "^4.1.1",
