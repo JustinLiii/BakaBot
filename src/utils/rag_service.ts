@@ -4,6 +4,8 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import { get_text_content } from "./agent_utils.ts";
 import * as arrow from "apache-arrow";
 
+import { sleep } from "./async_utils.ts" 
+
 const RagSchema = new arrow.Schema([
   new arrow.Field("role", new arrow.Utf8()),
   new arrow.Field("content", new arrow.Utf8()),
@@ -64,20 +66,29 @@ export class RagService {
   }
 
   private async getEmbedding(text: string): Promise<number[]> {
-    const response = await fetch("https://api.siliconflow.cn/v1/embeddings", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.SILICONFLOW_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: "BAAI/bge-m3",
-        input: text
-      })
-    });
 
-    if (!response.ok) {
-      throw new Error(`Failed to fetch embedding: ${await response.text()}`);
+    let response;
+    for (let i = 0; i < 3; i++) {
+      response = await fetch("https://api.siliconflow.cn/v1/embeddings", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${process.env.SILICONFLOW_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: "BAAI/bge-m3",
+          input: text
+        })
+      });
+      if (response.ok) {
+        break;
+      }
+      console.log('Retrying embedding fetch...');
+      await sleep(1000);
+    }
+
+    if (!(response?.ok)) {
+      throw new Error(`Failed to fetch embedding: ${await response?.text()}`);
     }
 
     const data = (await response.json()) as { data: { embedding: number[] }[] };
@@ -144,16 +155,23 @@ export class RagService {
   async add(msg: AgentMessage) {
     const textToEmbed = this.stringifyMessage(msg);
     if (!textToEmbed.trim()) return;
-    const item: RagItem = {
-      role: msg.role,
-      content: textToEmbed,
-      timestamp: msg.timestamp || Date.now(),
-      vector: await this.getEmbedding(textToEmbed),
+    try {
+      const item: RagItem = {
+        role: msg.role,
+        content: textToEmbed,
+        timestamp: msg.timestamp || Date.now(),
+        vector: await this.getEmbedding(textToEmbed),
+      }
+
+      if (!this.table) throw new Error("RAG service not initialized, table not found.");
+
+      this.table.add([item]);
+    } catch (e) {
+      if (e instanceof Error && (e.message.includes("No embedding returned from API") || e.message.includes("Failed to fetch embedding"))) {
+        console.warn(`Failed to save memory:\n${e.message}`)
+      }
     }
 
-    if (!this.table) throw new Error("RAG service not initialized, table not found.");
-
-    this.table.add([item]);
     // this.PeriodicOptimize(this.table); TODO: concurrent access could cause additional optimization operations
   }
 
@@ -169,7 +187,17 @@ export class RagService {
     // 1. Recall (Vector Search)
     if (!this.table) throw new Error("RAG service not initialized, table not found.");
     const table = this.table;
-    const queryVector = await this.getEmbedding(query);
+    let queryVector;
+    try {
+      queryVector = await this.getEmbedding(query);
+    } catch (e) {
+      if (e instanceof Error && (e.message.includes("No embedding returned from API") || e.message.includes("Failed to fetch embedding"))) {
+        console.warn(`Failed to read memory:\n${e.message}`)
+      }
+    }
+    if (!queryVector) {
+      return []
+    }
     const results = await table.search(queryVector).limit(recallLimit).toArray() as RagItem[];
     
     if (results.length === 0) return [];
