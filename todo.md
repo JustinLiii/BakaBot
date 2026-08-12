@@ -1,4 +1,3 @@
-- [ ] 重写搜索/网页逻辑，用更现代的网络工具
 - [ ] 为 MCP 密钥提供安全的配置渠道（如安全 WebUI 或密钥管理），避免通过 QQ 消息读写明文 key
 - [ ] 为群聊 MCP 配置命令增加权限控制，限制 add、conf set/unset 和 delete 等写操作
 - [ ] 更好的qq消息formatter，展示@对象的昵称，展示转发节点，获取图片和语音转文字等
@@ -10,6 +9,7 @@
 - [ ] 自己写agent loop，抛弃pi-agent，实现以下功能：
   - [ ] 基于每轮一个工具的agent-loop (当前设计按照每轮多个工具设计，现实只有一个，导致steer（当前工具调用完成后加入消息）和followUp（本轮所有工具调用后完成）无区别)
   - [ ] 实现长时异步工具（立即返回一个句柄/标记，继续agent loop，当工具真正完成后将结果followUp）
+- [x] 重写搜索/网页逻辑，用更现代的网络工具
 - [x] Web Request Retry & Fallback
 - [x] 重写bash沙盒
 - [x] Stream message for multi segment

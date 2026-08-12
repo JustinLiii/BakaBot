@@ -4,7 +4,7 @@ import type { Model, ImageContent, TextContent } from "@mariozechner/pi-ai";
 import console from "console";
 import type { GroupMessage } from "node-napcat-ts";
 
-import { continueTool, BashSandbox, createBashTool, createMcpManagementTools } from "./tools/index.ts";
+import { continueTool, BashSandbox, webSearchTool,createBashTool, createMcpManagementTools } from "./tools/index.ts";
 import { creatSkillTool } from "./skill_tool.ts";
 import { McpManager } from "./mcp/manager.ts";
 import { system_prompt } from "./prompts/sys.ts";
@@ -239,7 +239,7 @@ async function buildAgent(sessionId: string, initialState?: Partial<AgentState>)
     });
 
   agent.bashSandbox = new BashSandbox(sessionId);
-  const baseTools = [continueTool, createBashTool(agent.bashSandbox), creatSkillTool(sessionId)];
+  const baseTools = [continueTool, createBashTool(agent.bashSandbox), creatSkillTool(sessionId), webSearchTool];
   let managementTools: AgentTool[] = [];
   let mcpTools: AgentTool[] = [];
   agent.mcpManager = await McpManager.create({

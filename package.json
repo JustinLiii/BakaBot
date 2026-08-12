@@ -5,6 +5,7 @@
     "@lancedb/lancedb": "^0.26.2",
     "@mariozechner/pi-agent-core": "^0.51.2",
     "@modelcontextprotocol/client": "^2.0.0",
+    "@tavily/core": "^0.7.7",
     "@types/js-yaml": "^4.0.9",
     "agent-browser": "^0.34.0",
     "apache-arrow": "^21.1.0",
