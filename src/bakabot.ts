@@ -44,15 +44,24 @@ class BakaBot {
             this.mcp.bind(this),
             this.replyPrivateMsg.bind(this)
         ]
-        process.on('SIGINT', async  () => {
-            for (const [id, session] of this.agentDict) {
-                console.log(`Saving memories for session ${id}`);
-                if (session.agent) {
-                    await session.agent.RememberAll();
-                }
-            }
-            process.exit();
+        process.once("SIGINT", () => void this.shutdown("SIGINT"));
+        process.once("SIGTERM", () => void this.shutdown("SIGTERM"));
+    }
+
+    private async shutdown(signal: "SIGINT" | "SIGTERM"): Promise<void> {
+        console.log(`[Bot] Received ${signal}, shutting down sessions`);
+        const shutdowns = [...this.agentDict.entries()].map(async ([id, session]): Promise<void> => {
+            if (!session.agent) return;
+            console.log(`[Bot] Stopping sandbox and saving memories for session ${id}`);
+            await session.agent.stopCurrentWork();
+            await session.agent.RememberAll();
+            await session.agent.bashSandbox?.killContainer();
         });
+        const results = await Promise.allSettled(shutdowns);
+        for (const result of results) {
+            if (result.status === "rejected") console.error("[Bot] Session shutdown failed:", result.reason);
+        }
+        process.exit(results.some((result) => result.status === "rejected") ? 1 : 0);
     }
     
     private registerMsgHandler(napcat: NCWebsocket, agent: BakaAgent, sessionId: string) {
@@ -187,7 +196,7 @@ class BakaBot {
     async stop(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, session: Session) {
         const agent = session.agent!;
         if (event.raw_message === "/stop") {
-            agent.abort();
+            await agent.stopCurrentWork();
         }
     }
 

@@ -4,7 +4,7 @@ import type { Model, ImageContent, TextContent } from "@mariozechner/pi-ai";
 import console from "console";
 import type { GroupMessage } from "node-napcat-ts";
 
-import { webFetchTool, continueTool, createBashTool, createMcpManagementTools } from "./tools/index.ts";
+import { webFetchTool, continueTool, BashSandbox, createBashTool, createMcpManagementTools } from "./tools/index.ts";
 import { creatSkillTool } from "./skill_tool.ts";
 import { McpManager } from "./mcp/manager.ts";
 import { system_prompt } from "./prompts/sys.ts";
@@ -16,6 +16,7 @@ class BakaAgent extends Agent {
   toBeReplied: ((reply: string, at_sender?: boolean) => Promise<null>) | null = null;
   rag: RagService;
   mcpManager?: McpManager;
+  bashSandbox?: BashSandbox;
   contextPruneTriggerSize = 50; // Actural working context size could be larger as pruning could only be triggered at agent_end
 
   constructor(options: AgentOptions) {
@@ -182,6 +183,16 @@ class BakaAgent extends Agent {
     }
   }
 
+  async stopCurrentWork(): Promise<void> {
+    this.abort();
+    await this.bashSandbox?.killActiveProcess();
+  }
+
+  async shutdownSandbox(): Promise<void> {
+    await this.stopCurrentWork();
+    await this.bashSandbox?.killContainer();
+  }
+
 }
 
 async function buildAgent(sessionId: string, initialState?: Partial<AgentState>): Promise<BakaAgent> {
@@ -227,7 +238,8 @@ async function buildAgent(sessionId: string, initialState?: Partial<AgentState>)
       getApiKey: () => process.env.DEEPSEEK_API_KEY
     });
 
-  const baseTools = [webFetchTool, continueTool, createBashTool(sessionId), creatSkillTool(sessionId)];
+  agent.bashSandbox = new BashSandbox(sessionId);
+  const baseTools = [webFetchTool, continueTool, createBashTool(agent.bashSandbox), creatSkillTool(sessionId)];
   let managementTools: AgentTool[] = [];
   let mcpTools: AgentTool[] = [];
   agent.mcpManager = await McpManager.create({

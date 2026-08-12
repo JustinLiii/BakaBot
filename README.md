@@ -16,6 +16,22 @@ bun run index.ts
 
 This project was created using `bun init` in bun v1.3.8. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
 
+## Bash 沙箱
+
+BakaBot 为每个私聊和群聊会话维护一个独立的长驻 Docker 容器。Agent 第一次使用 Bash
+工具时创建容器，后续调用通过 `docker exec` 执行；容器停止后会在下一次调用时自动启动。
+
+- 镜像：`juztinlii/bakabot-sandbox`，当前基于 Python 3.12。
+- 默认工作目录：`/root`，上一次命令结束时的工作目录会用于下一次调用。
+- 持久文件：`/root` 映射到 `data/sessions/<sessionId>/workspace/`。
+- 容器状态：安装的软件、容器文件系统修改和后台进程在多次 Bash 调用间保留。
+- 资源限制：每个容器最多使用 512 MB 内存和 0.5 CPU。
+- 中止：命令超时、Agent abort 和 `/stop` 会终止当前命令的整个容器内进程组。
+- Bot 退出：收到 `SIGINT` 或 `SIGTERM` 时会终止当前命令并停止所有会话容器。容器不会
+  被删除，下次使用时会重新启动，因此容器文件系统仍会保留。
+
+长期保存的重要数据应写入 `/root`。删除对应 Docker 容器会丢失未写入 `/root` 的容器层修改。
+
 ## 🔌 MCP 配置
 
 BakaBot 为每个私聊和群聊会话维护独立的 MCP 配置。配置存储在：

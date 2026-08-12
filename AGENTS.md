@@ -66,7 +66,7 @@ This repository contains **BakaBot**, a TypeScript-based bot powered by the `pi-
 ## 🤖 Integration Rules
 
 ### 💾 Data Persistence
-- **Bash Tool Workspace**: Stored in `data/sessions/[sessionId]/workspace/`. This directory is mounted as `/workspace` in the Docker container.
+- **Bash Tool Workspace**: Stored in `data/sessions/[sessionId]/workspace/`. This directory is mounted as `/root` in the persistent per-session Docker container.
 - **RAG Storage**: Stored in `data/sessions/[sessionId]/rag/`. Contains `rag_index.json` (vector index) and `rag_metadata.json` (message history).
 
 ### Important Notice
