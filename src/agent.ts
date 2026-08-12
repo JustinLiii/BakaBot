@@ -199,7 +199,7 @@ async function buildAgent(sessionId: string, initialState?: Partial<AgentState>)
   // };
 
   const model: Model<'openai-completions'> = {
-    id: 'deepseek-chat',
+    id: 'deepseek-v4-flash',
     name: 'DeepSeek-Latest',
     api: 'openai-completions',
     provider: 'DeepSeek',
