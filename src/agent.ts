@@ -6,7 +6,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import type { GroupMessage } from "node-napcat-ts";
 
-import { webFetchTool, continueTool, createBashTool } from "./tools.ts";
+import { webFetchTool, continueTool, createBashTool } from "./tools/index.ts";
 import { creatSkillTool } from "./skill_tool.ts";
 import { createMcpToolsFromEndpoints } from "./mcp_tool.ts";
 import type { McpClientOptions } from "./mcp_tool.ts";
