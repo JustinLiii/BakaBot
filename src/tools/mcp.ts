@@ -40,7 +40,7 @@ function createMcpManagementTools(manager: McpManager): AgentTool[] {
   const addTool: AgentTool = {
     name: "add_mcp_server",
     label: "Add MCP Server",
-    description: "为当前会话添加并加载一个 MCP 服务器",
+    description: "为当前会话添加并加载一个 MCP 服务器（MCP修改需要在下一轮对话（用户发出下一消息）才能生效）",
     parameters: Type.Object({
       name: Type.String({ description: "MCP 服务器名称" }),
       config: Type.Union([
@@ -70,7 +70,7 @@ function createMcpManagementTools(manager: McpManager): AgentTool[] {
   const updateTool: AgentTool = {
     name: "update_mcp_server",
     label: "Update MCP Server",
-    description: "设置或删除当前会话 MCP 服务器的一个对象配置项；数组必须整体设置",
+    description: "设置或删除当前会话 MCP 服务器的一个对象配置项；数组必须整体设置（MCP修改需要在下一轮对话（用户发出下一消息）才能生效）",
     parameters: Type.Object({
       name: Type.String({ description: "MCP 服务器名称" }),
       operation: Type.Union([Type.Literal("set"), Type.Literal("unset")]),
@@ -97,7 +97,7 @@ function createMcpManagementTools(manager: McpManager): AgentTool[] {
   const deleteTool: AgentTool = {
     name: "delete_mcp_server",
     label: "Delete MCP Server",
-    description: "删除当前会话的一个 MCP 服务器；默认服务器不能删除",
+    description: "删除当前会话的一个 MCP 服务器；默认服务器不能删除（MCP修改需要在下一轮对话（用户发出下一消息）才能生效）",
     parameters: Type.Object({ name: Type.String({ description: "MCP 服务器名称" }) }),
     execute: async (_id, params): Promise<AgentToolResult<unknown>> => {
       const input = params as { name: string };
