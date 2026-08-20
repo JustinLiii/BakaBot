@@ -1,4 +1,4 @@
-import { napcat } from "./src/napcat";
+import { napcat } from "./src/qqbot/napcat";
 import { BakaBot } from "./src/bakabot";
 
 await napcat.connect();

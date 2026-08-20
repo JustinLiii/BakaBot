@@ -4,7 +4,7 @@ import type { GroupMessage, PrivateFriendMessage, PrivateGroupMessage, NCWebsock
 
 import { buildAgent, type BakaAgent } from "./agent";
 import { formatGroupInfo, formatGroupMemberList, groupPrompt, privatePrompt, eventToString, groupMessageWithHistory } from "./prompts/napcat_templates";
-import { atMe, getId, reply } from "./utils/napcat_utils";
+import { atMe, getId, reply } from "./qqbot/utils";
 import { system_prompt } from "./prompts/sys";
 import { StreamBuffer } from "./utils/stream_buffer";
 import { handleMcpSlashCommand } from "./mcp/slash_command.ts";

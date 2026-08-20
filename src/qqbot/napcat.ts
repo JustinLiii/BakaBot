@@ -1,4 +1,4 @@
-import { NCWebsocket, Structs, type SendMessageSegment } from 'node-napcat-ts'
+import { NCWebsocket } from 'node-napcat-ts'
 
 const napcat = new NCWebsocket({
   protocol: 'ws',
