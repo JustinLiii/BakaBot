@@ -9,8 +9,8 @@ import { system_prompt } from "./prompts/sys";
 import { StreamBuffer } from "./utils/stream_buffer";
 import { handleMcpSlashCommand } from "./mcp/slash_command.ts";
 
-type PrivateMsgHandler = (event: PrivateFriendMessage | PrivateGroupMessage, session: Session) => Promise<void>;
-type GroupMsgHandler = (event: GroupMessage, session: Session) => Promise<void>;
+type PrivateMsgHandler = (event: PrivateFriendMessage | PrivateGroupMessage, session: Session) => Promise<boolean>;
+type GroupMsgHandler = (event: GroupMessage, session: Session) => Promise<boolean>;
 
 type Session = {
     agent: BakaAgent | null,
@@ -31,6 +31,9 @@ class BakaBot {
 
     constructor(selfId?: string) { 
         this.selfId = selfId;
+
+        // handler的顺序很重要
+        // handler返回false时，会阻止列表之后的handler执行
         this.processGroupMsg = [
             this.clear.bind(this),
             this.stop.bind(this),
@@ -174,10 +177,10 @@ class BakaBot {
             const thisEvent = session.pending.shift()!;
             if (thisEvent.message_type === "group") {
                 console.log("[Bot] Processing group message for " + id)
-                for (const handle of this.processGroupMsg) await handle(thisEvent, session);
+                for (const handle of this.processGroupMsg) if (!(await handle(thisEvent, session))) return;
             } else if (thisEvent.message_type === "private") {
                 console.log("[Bot] Processing private message for " + id)
-                for (const handle of this.processPrivateMsg) await handle(thisEvent, session);
+                for (const handle of this.processPrivateMsg) if (!(await handle(thisEvent, session))) return;
             }
         }
     }
@@ -185,24 +188,28 @@ class BakaBot {
     // ---------------
     // Slash Commands
     // ---------------
-    async clear(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, session: Session) {
+    async clear(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, session: Session): Promise<boolean> {
         const agent = session.agent!;
         if (event.raw_message === "/clear") {
             agent.RememberAll();
             agent.clearMessages();
+            return false; // stop message flowing
         }
+        return true;
     }
 
-    async stop(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, session: Session) {
+    async stop(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, session: Session): Promise<boolean> {
         const agent = session.agent!;
         if (event.raw_message === "/stop") {
             await agent.stopCurrentWork();
+            return false; // stop message flowing
         }
+        return true;
     }
 
-    async mcp(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, session: Session): Promise<void> {
+    async mcp(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, session: Session): Promise<boolean> {
         const manager = session.agent!.mcpManager;
-        if (!manager) return;
+        if (!manager) return true;
         const result = await handleMcpSlashCommand(event.raw_message, manager);
         if (result !== null) {
             if (event.message_type === "group") {
@@ -211,13 +218,15 @@ class BakaBot {
             } else {
                 await event.quick_action([Structs.text(result)]);
             }
+            return false; // stop message flowing
         }
+        return true;
     }
 
     // ---------------
     // Reply Handlers
     // ---------------
-    async replyPrivateMsg(context: PrivateFriendMessage | PrivateGroupMessage, session: Session) {
+    async replyPrivateMsg(context: PrivateFriendMessage | PrivateGroupMessage, session: Session): Promise<boolean>  {
         const agent = session.agent!;
         const text = eventToString(context);
         console.log("User: " + text);
@@ -229,13 +238,14 @@ class BakaBot {
             console.log("[Bot] Agent busy, sending steer");
             agent.steer({role: "user", content: text, timestamp: new Date().getTime() });
         }
+        return true;
     }
 
-    async replyGroupMsg(context: GroupMessage, session: Session) {
+    async replyGroupMsg(context: GroupMessage, session: Session): Promise<boolean> {
         const agent = session.agent!;
         const groupMsgBuffer = session.groupMsgBuffer;
         // console.log("Processing:"+ context.raw_message)
-        if (context.sender.user_id == context.self_id) return;
+        if (context.sender.user_id == context.self_id) return true;
         const text = eventToString(context);
         console.log("[Bot] Processing:" + text)
         const msg = {
@@ -250,7 +260,7 @@ class BakaBot {
                 const extra_messages = groupMsgBuffer.splice(0, groupMsgBuffer.length - this.recentGroupMsgSize);
                 agent.rememberMessages(extra_messages)
             }
-            return;
+            return true;
         }
 
         // 当不回复时，直接把msg塞进RAG，回复时，msg和当前回复消息一起组成一个消息，回复并塞进rag
@@ -272,6 +282,7 @@ class BakaBot {
             // @ts-ignore quick_action have an errorous type definition
             agent.GroupfollowUp(formattedMsg, context.quick_action.bind(context));
         }
+        return true;
     }
 }
 
