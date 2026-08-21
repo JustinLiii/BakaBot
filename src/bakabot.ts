@@ -3,6 +3,7 @@ import { Structs } from "node-napcat-ts";
 import type { GroupMessage, PrivateFriendMessage, PrivateGroupMessage, NCWebsocket } from "node-napcat-ts";
 
 import { buildAgent, type BakaAgent } from "./agent";
+import { ReplyTrigger } from "./utils/trigger.ts";
 import { formatGroupInfo, formatGroupMemberList, groupPrompt, privatePrompt, eventToString, groupMessageWithHistory } from "./prompts/napcat_templates";
 import { atMe, getId, reply } from "./qqbot/utils";
 import { system_prompt } from "./prompts/sys";
@@ -14,6 +15,7 @@ type GroupMsgHandler = (event: GroupMessage, session: Session) => Promise<boolea
 
 type Session = {
     agent: BakaAgent | null,
+    replyTrigger: ReplyTrigger | null,
     groupMsgBuffer: AgentMessage[],
     pending: (GroupMessage | PrivateFriendMessage | PrivateGroupMessage)[]
 }
@@ -29,7 +31,7 @@ class BakaBot {
 
     recentGroupMsgSize = 10;
 
-    constructor(selfId?: string) { 
+    constructor(selfId?: string) {
         this.selfId = selfId;
 
         // handler的顺序很重要
@@ -66,7 +68,7 @@ class BakaBot {
         }
         process.exit(results.some((result) => result.status === "rejected") ? 1 : 0);
     }
-    
+
     private registerMsgHandler(napcat: NCWebsocket, agent: BakaAgent, sessionId: string) {
         // 为每个会话创建流式缓冲区
         const streamBuffer = new StreamBuffer(async (segment: string) => {
@@ -79,22 +81,22 @@ class BakaBot {
         }, (error) => {
             console.error(`[Stream] Error sending segment for session ${sessionId}:`, error);
         });
-        
+
         // 监听事件
         agent.subscribe(async (event) => {
             // 处理流式文本增量
-            if (event.type === "message_update" && 
+            if (event.type === "message_update" &&
                 event.assistantMessageEvent?.type === "text_delta") {
-                
+
                 const delta = event.assistantMessageEvent.delta;
                 streamBuffer.append(delta);
             }
-            
+
             // 处理"正在输入"状态
             if (event.type === "message_start" && event.message.role === "assistant") {
                 await this.startTyping(sessionId, napcat);
             }
-            
+
             if (event.type === "message_end" && event.message.role === "assistant") {
                 await streamBuffer.flush();
                 // 注意：不需要手动停止"正在输入"状态，QQ会在消息发送后自动重置
@@ -107,7 +109,7 @@ class BakaBot {
         if (sessionId.startsWith("g")) {
             return;
         }
-        
+
         try {
             const userId = sessionId; // 私聊的sessionId就是userId
             await napcat.set_input_status({
@@ -150,16 +152,22 @@ class BakaBot {
         });
     }
 
+    /**
+     * 提供给Napcat的message handler
+     *
+     * @param event - The incoming NapCat message event.
+     * @param napcat - The active NapCat websocket used to initialize the agent and send replies.
+     */
     async onMsg(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, napcat: NCWebsocket): Promise<void> {
         const msg = eventToString(event);
         const id = getId(event);
         console.log(`[Bot] Received message in ${id}: ${msg}`);
-
+        
         // new seesion handling
         let session = this.agentDict.get(id);
         if (!session) {
             // build agent for new session
-            session = { agent: null, groupMsgBuffer: [], pending: [] };
+            session = { agent: null, groupMsgBuffer: [], pending: [], replyTrigger: null};
             this.agentDict.set(id, session);
             session.agent = await this.constructAgent(event, napcat);
             this.registerMsgHandler(napcat, session.agent, id);
@@ -226,7 +234,7 @@ class BakaBot {
     // ---------------
     // Reply Handlers
     // ---------------
-    async replyPrivateMsg(context: PrivateFriendMessage | PrivateGroupMessage, session: Session): Promise<boolean>  {
+    async replyPrivateMsg(context: PrivateFriendMessage | PrivateGroupMessage, session: Session): Promise<boolean> {
         const agent = session.agent!;
         const text = eventToString(context);
         console.log("User: " + text);
@@ -236,7 +244,7 @@ class BakaBot {
             if (!(e instanceof Error)) throw e;
             if (!e.message.includes("Agent is already processing a prompt.")) throw e;
             console.log("[Bot] Agent busy, sending steer");
-            agent.steer({role: "user", content: text, timestamp: new Date().getTime() });
+            agent.steer({ role: "user", content: text, timestamp: new Date().getTime() });
         }
         return true;
     }
@@ -254,7 +262,9 @@ class BakaBot {
             timestamp: new Date().getTime()
         }
         const at = atMe(context)
-        if (!at) {
+        if (!session.replyTrigger) { session.replyTrigger = new ReplyTrigger()}
+        const needReply = session.replyTrigger.newMsg(text, at, false);
+        if (!needReply) {
             groupMsgBuffer.push(msg as AgentMessage);
             if (groupMsgBuffer.length >= this.recentGroupMsgSize) {
                 const extra_messages = groupMsgBuffer.splice(0, groupMsgBuffer.length - this.recentGroupMsgSize);
@@ -265,16 +275,16 @@ class BakaBot {
 
         // 当不回复时，直接把msg塞进RAG，回复时，msg和当前回复消息一起组成一个消息，回复并塞进rag
         // 所以这里的回复时逻辑不需要rememeber
-        const formattedMsg = groupMessageWithHistory(msg.content, groupMsgBuffer.map((m)=>m.content as string))
+        const formattedMsg = groupMessageWithHistory(msg.content, groupMsgBuffer.map((m) => m.content as string))
         session.groupMsgBuffer = [];
-        
+
         console.log("[Bot] Calling agent");
         try {
             await agent.prompt({
-            role: "user",
-            content: formattedMsg,
-            timestamp: msg.timestamp
-        });
+                role: "user",
+                content: formattedMsg,
+                timestamp: msg.timestamp
+            });
         } catch (e) {
             if (!(e instanceof Error)) throw e;
             if (!e.message.includes("Agent is already processing a prompt.")) throw e;
