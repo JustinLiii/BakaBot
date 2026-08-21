@@ -5,8 +5,8 @@ await napcat.connect();
 
 const info = await napcat.get_login_info()
 
-const bot = new BakaBot(info.user_id.toString());
+const bot = new BakaBot(napcat, info.user_id.toString());
 
-napcat.on("message", (event) => bot.onMsg(event, napcat));
+napcat.on("message", (event) => bot.onMsg(event));
 
 

@@ -24,6 +24,8 @@ class BakaBot {
 
     agentDict: Map<string, Session> = new Map();
 
+    napcat: NCWebsocket;
+
     processPrivateMsg: PrivateMsgHandler[] = [];
     processGroupMsg: GroupMsgHandler[] = [];
 
@@ -31,8 +33,9 @@ class BakaBot {
 
     recentGroupMsgSize = 10;
 
-    constructor(selfId?: string) {
+    constructor(napcat: NCWebsocket, selfId?: string) {
         this.selfId = selfId;
+        this.napcat = napcat;
 
         // handler的顺序很重要
         // handler返回false时，会阻止列表之后的handler执行
@@ -69,14 +72,14 @@ class BakaBot {
         process.exit(results.some((result) => result.status === "rejected") ? 1 : 0);
     }
 
-    private registerMsgHandler(napcat: NCWebsocket, agent: BakaAgent, sessionId: string) {
+    private registerMsgHandler(agent: BakaAgent, sessionId: string) {
         // 为每个会话创建流式缓冲区
         const streamBuffer = new StreamBuffer(async (segment: string) => {
             if (agent.toBeReplied) {
                 await agent.toBeReplied(segment, true);
                 agent.toBeReplied = null;
             } else {
-                await reply(segment, sessionId, napcat);
+                await reply(segment, sessionId, this.napcat);
             }
         }, (error) => {
             console.error(`[Stream] Error sending segment for session ${sessionId}:`, error);
@@ -94,7 +97,7 @@ class BakaBot {
 
             // 处理"正在输入"状态
             if (event.type === "message_start" && event.message.role === "assistant") {
-                await this.startTyping(sessionId, napcat);
+                await this.startTyping(sessionId, this.napcat);
             }
 
             if (event.type === "message_end" && event.message.role === "assistant") {
@@ -123,12 +126,12 @@ class BakaBot {
         }
     }
 
-    private async constructAgent(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, napcat: NCWebsocket): Promise<BakaAgent> {
+    private async constructAgent(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage): Promise<BakaAgent> {
         let sys_prompt: string = system_prompt;
         const sessionId = getId(event);
         if (event.message_type === "group") {
-            const group_info_str = formatGroupInfo(await napcat.get_group_info({ group_id: event.group_id }))
-            const group_member_list_str = formatGroupMemberList(await napcat.get_group_member_list({ group_id: event.group_id }))
+            const group_info_str = formatGroupInfo(await this.napcat.get_group_info({ group_id: event.group_id }))
+            const group_member_list_str = formatGroupMemberList(await this.napcat.get_group_member_list({ group_id: event.group_id }))
             sys_prompt += groupPrompt(group_info_str, group_member_list_str);
         } else if (event.message_type === "private") {
             if (event.sub_type === "friend") {
@@ -158,10 +161,9 @@ class BakaBot {
      * @param event - The incoming NapCat message event.
      * @param napcat - The active NapCat websocket used to initialize the agent and send replies.
      */
-    async onMsg(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage, napcat: NCWebsocket): Promise<void> {
-        const msg = eventToString(event);
+    async onMsg(event: GroupMessage | PrivateFriendMessage | PrivateGroupMessage): Promise<void> {
         const id = getId(event);
-        console.log(`[Bot] Received message in ${id}: ${msg}`);
+        console.log(`[Bot] Received message in ${id}: ${event.message.map((msg) => `${msg.type}: ${"text" in msg.data ? msg.data.text : ""}`).join(" ")}`);
         
         // new seesion handling
         let session = this.agentDict.get(id);
@@ -169,8 +171,8 @@ class BakaBot {
             // build agent for new session
             session = { agent: null, groupMsgBuffer: [], pending: [], replyTrigger: null};
             this.agentDict.set(id, session);
-            session.agent = await this.constructAgent(event, napcat);
-            this.registerMsgHandler(napcat, session.agent, id);
+            session.agent = await this.constructAgent(event);
+            this.registerMsgHandler(session.agent, id);
             console.log("[Bot] Agent created for " + id);
         } else if (!session.agent) {
             // agent is still being built, queue the message
@@ -236,7 +238,7 @@ class BakaBot {
     // ---------------
     async replyPrivateMsg(context: PrivateFriendMessage | PrivateGroupMessage, session: Session): Promise<boolean> {
         const agent = session.agent!;
-        const text = eventToString(context);
+        const text = await eventToString(context, this.napcat);
         console.log("User: " + text);
         try {
             await agent.prompt(text);
@@ -254,7 +256,7 @@ class BakaBot {
         const groupMsgBuffer = session.groupMsgBuffer;
         // console.log("Processing:"+ context.raw_message)
         if (context.sender.user_id == context.self_id) return true;
-        const text = eventToString(context);
+        const text = await eventToString(context, this.napcat);
         console.log("[Bot] Processing:" + text)
         const msg = {
             role: "user",
