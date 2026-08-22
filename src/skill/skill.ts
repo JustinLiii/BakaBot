@@ -8,9 +8,24 @@ function defaultSkillRegHostDir(sessionId: string) {
     return path.join(process.cwd(), "data", "sessions", sessionId, "workspace", ".agent/skills");
 }
 
+async function dirExist(dir: string) {
+    try {
+        const stat = await fs.stat(dir)
+        if (stat.isDirectory()) {
+            return true;
+        }
+        return false;
+    } catch {
+        return false;
+    }
+}
+
 async function loadSkillRegPrompt(sessionId: string): Promise<string> {
     const skillRegDir = defaultSkillRegHostDir(sessionId);
     const sandboxSkillRegDir = defaultSkillRegSandBoxDir;
+    if (!(await dirExist(skillRegDir))) {
+        await fs.mkdir(skillRegDir);
+    }
     let regFolder = undefined;
     try {
         regFolder = await fs.opendir(skillRegDir);
