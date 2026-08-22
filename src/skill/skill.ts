@@ -3,9 +3,9 @@ import path from "node:path";
 
 import matter from 'gray-matter';
 
-const defaultSkillRegSandBoxDir = "/root/.agent/skills"
+const defaultSkillRegSandBoxDir = "/root/.agents/skills"
 function defaultSkillRegHostDir(sessionId: string) {
-    return path.join(process.cwd(), "data", "sessions", sessionId, "workspace", ".agent/skills");
+    return path.join(process.cwd(), "data", "sessions", sessionId, "workspace", ".agents/skills");
 }
 
 async function loadSkillRegPrompt(sessionId: string): Promise<string> {
@@ -63,7 +63,7 @@ This catalog contains summaries only; do not infer or follow a skill's instructi
 **Skill Managing**
 Use \`npx skills\` to manage skills. 
 By default, install with \`npx skills add <skill source> -a cline\`
-Always append \`-a cline\` to install skill in \`.agent/skills\` dir so you can use it.
+Always append \`-a cline\` to install skill in \`.agents/skills\` dir so you can use it.
 
 ### Skill Source Formats
 npx skills add vercel-labs/agent-skills (GitHub shorthand (owner/repo))
