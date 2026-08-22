@@ -8,23 +8,20 @@ function defaultSkillRegHostDir(sessionId: string) {
     return path.join(process.cwd(), "data", "sessions", sessionId, "workspace", ".agent/skills");
 }
 
-async function dirExist(dir: string) {
-    try {
-        const stat = await fs.stat(dir)
-        if (stat.isDirectory()) {
-            return true;
-        }
-        return false;
-    } catch {
-        return false;
-    }
-}
-
 async function loadSkillRegPrompt(sessionId: string): Promise<string> {
     const skillRegDir = defaultSkillRegHostDir(sessionId);
     const sandboxSkillRegDir = defaultSkillRegSandBoxDir;
-    if (!(await dirExist(skillRegDir))) {
-        await fs.mkdir(skillRegDir);
+    try {
+        await fs.mkdir(skillRegDir, { recursive: true }); // 目录已存在时不会报错
+    } catch (err) {
+        console.warn(`无法创建默认skill目录：${skillRegDir}`);
+        if (err instanceof Error) {
+            console.warn(err.message);
+            console.warn(err.stack);
+        } else {
+            console.warn(`未知错误：${err}`);
+        }
+        return ""
     }
     let regFolder = undefined;
     try {
