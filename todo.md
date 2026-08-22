@@ -5,7 +5,6 @@
   - [x] 消息时间
   - [ ] ~~展示@对象的昵称~~
   - [ ] ~~图片转文字~~
-- [ ] 主流的Skill逻辑
 - [ ] 计时器-agent工具，可以设置在多长时间后，或者某个时间后主动触发agent
 - [ ] 中间件-处理/stop /clear这些指令，并控制他们是否流向之后的消息处理流程
 - [ ] 完全重构群组逻辑，按触发-attach-互动-detach流程进行。
@@ -18,6 +17,7 @@
   - [ ] 实现长时异步工具（立即返回一个句柄/标记，继续agent loop，当工具真正完成后将结果followUp）
 - [ ] 为 MCP 密钥提供安全的配置渠道（如安全 WebUI 或密钥管理），避免通过 QQ 消息读写明文 key
 - [ ] 为群聊 MCP 配置命令增加权限控制，限制 add、conf set/unset 和 delete 等写操作
+- [x] 主流的Skill逻辑
 - [x] Good group chat trigger 目前的llm trigger触发率太高，已停用
 - [x] 重写搜索/网页逻辑，用更现代的网络工具
 - [x] Web Request Retry & Fallback

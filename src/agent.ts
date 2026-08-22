@@ -1,15 +1,14 @@
 import { Agent } from "@mariozechner/pi-agent-core";
-import type { AgentOptions, AgentState, AgentMessage, AgentEvent, AgentTool } from "@mariozechner/pi-agent-core";
+import type { AgentOptions, AgentState, AgentMessage, AgentTool } from "@mariozechner/pi-agent-core";
 import type { Model, ImageContent, TextContent } from "@mariozechner/pi-ai";
 import console from "console";
-import type { GroupMessage } from "node-napcat-ts";
 
-import { continueTool, BashSandbox, webSearchTool,createBashTool, createMcpManagementTools } from "./tools/index.ts";
-import { creatSkillTool } from "./skill_tool.ts";
+import { continueTool, BashSandbox, webSearchTool, createBashTool, createMcpManagementTools, createRefreshSkillTool } from "./tools/index.ts";
 import { McpManager } from "./mcp/manager.ts";
 import { system_prompt } from "./prompts/sys.ts";
 import { RagService } from "./utils/rag_service.ts";
 import { get_text_content } from "./utils/agent_utils.ts";
+import { loadSkillRegPrompt } from "./skill/skill.ts";
 
 class BakaAgent extends Agent {
   pendingGroupFollowUp: {msg: string, reply_action: (reply: string, at_sender?: boolean) => Promise<null>}[] = [];
@@ -18,10 +17,12 @@ class BakaAgent extends Agent {
   mcpManager?: McpManager;
   bashSandbox?: BashSandbox;
   contextPruneTriggerSize = 50; // Actural working context size could be larger as pruning could only be triggered at agent_end
+  readonly customSystemPrompt: string; // Custom system prompt. Without framework managed parts like tool / skill registries.
 
   constructor(options: AgentOptions) {
     super(options);
     this.rag = new RagService(options.sessionId!);
+    this.customSystemPrompt = options.initialState?.systemPrompt ?? "";
 
     // Dispatch events
     this.subscribe(async (event) => {
@@ -174,6 +175,10 @@ class BakaAgent extends Agent {
     });
   }
 
+  async refreshSkillRegistry() {
+    this.setSystemPrompt(this.customSystemPrompt + await loadSkillRegPrompt(this.sessionId!));
+  }
+
   async RememberAll(includeToolResult: boolean = false) {
     if (!this.rag.initialized) await this.rag.Initialize();
     if (includeToolResult) {
@@ -196,18 +201,6 @@ class BakaAgent extends Agent {
 }
 
 async function buildAgent(sessionId: string, initialState?: Partial<AgentState>): Promise<BakaAgent> {
-  // const model: Model<'openai-completions'> = {
-  //   id: 'deepseek-ai/DeepSeek-V3.2',
-  //   name: 'DeepSeek-V3.2 (SiliconFlow)',
-  //   api: 'openai-completions',
-  //   provider: 'SiliconFlow',
-  //   baseUrl: 'https://api.siliconflow.cn/v1/',
-  //   reasoning: false,
-  //   input: ['text'],
-  //   cost: { input: 2, output: 3, cacheRead: 2, cacheWrite: 3 },
-  //   contextWindow: 163840,
-  //   maxTokens: 163840,
-  // };
 
   const model: Model<'openai-completions'> = {
     id: 'deepseek-v4-flash',
@@ -234,12 +227,14 @@ async function buildAgent(sessionId: string, initialState?: Partial<AgentState>)
         ...defaultState,
         ...initialState,
       },
-      // getApiKey: () => process.env.SILICONFLOW_API_KEY
       getApiKey: () => process.env.DEEPSEEK_API_KEY
     });
 
+  
+  await agent.refreshSkillRegistry();
+
   agent.bashSandbox = new BashSandbox(sessionId);
-  const baseTools = [continueTool, createBashTool(agent.bashSandbox), creatSkillTool(sessionId), webSearchTool];
+  const baseTools = [continueTool, createBashTool(agent.bashSandbox), createRefreshSkillTool(agent), webSearchTool];
   let managementTools: AgentTool[] = [];
   let mcpTools: AgentTool[] = [];
   agent.mcpManager = await McpManager.create({
