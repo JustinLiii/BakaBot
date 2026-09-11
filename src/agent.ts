@@ -3,7 +3,7 @@ import type { AgentOptions, AgentState, AgentMessage, AgentTool } from "@marioze
 import type { Model, ImageContent, TextContent } from "@mariozechner/pi-ai";
 import console from "console";
 
-import { continueTool, BashSandbox, webSearchTool, createBashTool, createMcpManagementTools, createRefreshSkillTool } from "./tools/index.ts";
+import { continueTool, BashSandbox, webSearchTool, createBashTool, createMcpManagementTools, createRefreshSkillTool, createReadImageTool } from "./tools/index.ts";
 import { McpManager } from "./mcp/manager.ts";
 import { system_prompt } from "./prompts/sys.ts";
 import { RagService } from "./utils/rag_service.ts";
@@ -203,13 +203,14 @@ class BakaAgent extends Agent {
 async function buildAgent(sessionId: string, initialState?: Partial<AgentState>): Promise<BakaAgent> {
 
   const model: Model<'openai-completions'> = {
-    id: 'deepseek-v4-flash',
+    id: 'deepseek-flash',
     name: 'DeepSeek-Latest',
     api: 'openai-completions',
     provider: 'DeepSeek',
     baseUrl: 'https://api.deepseek.com/v1/',
-    reasoning: false,
-    input: ['text'],
+    reasoning: true,
+    thinkingLevel: 'low',
+    input: ['text', "image"],
     cost: { input: 2, output: 3, cacheRead: 0.2, cacheWrite: 3 },
     contextWindow: 163840,
     maxTokens: 163840,
@@ -234,7 +235,7 @@ async function buildAgent(sessionId: string, initialState?: Partial<AgentState>)
   await agent.refreshSkillRegistry();
 
   agent.bashSandbox = new BashSandbox(sessionId);
-  const baseTools = [continueTool, createBashTool(agent.bashSandbox), createRefreshSkillTool(agent), webSearchTool];
+  const baseTools = [continueTool, createBashTool(agent.bashSandbox), createRefreshSkillTool(agent), webSearchTool, createReadImageTool(sessionId)];
   let managementTools: AgentTool[] = [];
   let mcpTools: AgentTool[] = [];
   agent.mcpManager = await McpManager.create({
